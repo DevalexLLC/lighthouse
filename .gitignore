@@ -1,0 +1,17 @@
+# Build outputs
+/bin/
+
+# Local state (dev runs)
+/tmp/
+*.log
+
+# Editor noise
+.idea/
+.vscode/
+*~
+
+# Node modules are never committed; web/dist IS committed (air-gap builds)
+web/node_modules/
+
+# Local-only config
+*.local.yaml
