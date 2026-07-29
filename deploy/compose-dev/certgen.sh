@@ -1,0 +1,18 @@
+#!/bin/sh
+# Dev-only: self-signed server TLS certificate for the compose stack.
+# Production certs are operator-provided (see deploy/compose/server.example.yaml).
+set -eu
+
+DIR=/etc/lighthouse/tls
+if [ -s "$DIR/server.crt" ] && [ -s "$DIR/server.key" ]; then
+    echo "certgen: dev server certificate already present, leaving it alone"
+    exit 0
+fi
+
+echo "certgen: generating dev server certificate"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+    -keyout "$DIR/server.key" -out "$DIR/server.crt" -days 825 \
+    -subj "/CN=lighthouse-dev" \
+    -addext "subjectAltName=DNS:grpc.lighthouse.local,DNS:lighthouse.local,DNS:localhost,DNS:server,DNS:proxy"
+chmod 600 "$DIR/server.key"
+echo "certgen: wrote $DIR/server.crt"

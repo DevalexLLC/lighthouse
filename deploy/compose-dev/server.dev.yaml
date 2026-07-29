@@ -1,0 +1,14 @@
+# lighthouse-server dev configuration (compose dev overlay only).
+listen:
+  grpc: ":8443"
+  grpc_hostname: grpc.lighthouse.local
+  http: ":8080"
+db:
+  url: postgres://lighthouse:lighthouse-dev@timescaledb:5432/lighthouse
+tls:
+  cert_file: /etc/lighthouse/tls/server.crt
+  key_file: /etc/lighthouse/tls/server.key
+ca:
+  dir: /var/lib/lighthouse-server/ca
+log:
+  level: debug

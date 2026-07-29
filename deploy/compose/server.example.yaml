@@ -1,0 +1,26 @@
+# lighthouse-server configuration — example.
+# Copy to server.yaml and edit. Unknown keys are FATAL (fail-loud).
+
+listen:
+  grpc: ":8443"   # agent-facing mTLS gRPC (proxy routes grpc.<domain> here)
+  # DNS name agents connect to (their SNI). The built-in CA auto-issues the
+  # gRPC server certificate with this SAN.
+  grpc_hostname: grpc.lighthouse.example.com
+  http: ":8080"   # dashboard HTTPS       (proxy routes everything else here)
+
+db:
+  # In the compose stack the hostname is the service name.
+  url: postgres://lighthouse:CHANGE_ME@timescaledb:5432/lighthouse
+
+tls:
+  # Dashboard certificate (browser-facing listener only; the gRPC listener's
+  # certificate is auto-issued by the built-in CA with the grpc_hostname SAN).
+  cert_file: /etc/lighthouse/tls/server.crt
+  key_file: /etc/lighthouse/tls/server.key
+
+ca:
+  # Built-in CA for agent client certificates (created by `ca init`).
+  dir: /var/lib/lighthouse-server/ca
+
+log:
+  level: info
