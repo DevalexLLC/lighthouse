@@ -10,11 +10,16 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/devalexllc/lighthouse/internal/agent/config"
 	"github.com/devalexllc/lighthouse/internal/agent/enroll"
+	"github.com/devalexllc/lighthouse/internal/agent/probes"
+	"github.com/devalexllc/lighthouse/internal/agent/scheduler"
+	"github.com/devalexllc/lighthouse/internal/agent/spool"
 	"github.com/devalexllc/lighthouse/internal/agent/uplink"
+	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/version"
 )
 
@@ -103,7 +108,25 @@ func cmdRun(args []string) error {
 	defer up.Close()
 
 	slog.Info("lighthouse-agent starting", "version", version.String(), "server", cfg.Server.Address)
-	// TODO(M2): scheduler + probes wired to up.OnSnapshot; spool + pusher.
+
+	// Spool-first single path: every result is written to disk, the pusher
+	// drains from there. A spool that cannot be opened is fatal — running
+	// without it would silently lose results across outages.
+	sp, err := spool.Open(filepath.Join(cfg.StateDir, "spool"), cfg.Spool.MaxBytes, cfg.Spool.MaxAge)
+	if err != nil {
+		return err
+	}
+	defer sp.Close()
+
+	sched := scheduler.New(probes.DefaultRegistry(), func(res *pb.ProbeResult) {
+		if err := sp.Append(res); err != nil {
+			slog.Error("spool append failed", "probe", res.GetProbeId(), "err", err)
+		}
+	})
+	defer sched.Stop()
+	up.OnSnapshot = sched.Apply
+
+	go uplink.NewPusher(up, sp).Run(ctx)
 	return up.Run(ctx)
 }
 
