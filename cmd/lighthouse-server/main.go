@@ -31,6 +31,12 @@ Usage:
                                                      create the built-in CA
   lighthouse-server token create --config <file> --site <name> [--ttl 24h] [--quiet]
                                                      issue an agent join token
+  lighthouse-server target add|list|rm --config <file> ...
+                                                     manage external probe targets
+  lighthouse-server probe add|list|rm --config <file> ...
+                                                     manage probe assignments
+  lighthouse-server mesh create|add|rm|list --config <file> ...
+                                                     manage full-mesh site groups
   lighthouse-server user add --config <file> --username <name> [--admin]
                                                      create a dashboard user
   lighthouse-server version                          print version and exit
@@ -51,6 +57,12 @@ func main() {
 		err = cmdCA(os.Args[2:])
 	case "token":
 		err = cmdToken(os.Args[2:])
+	case "target":
+		err = cmdTarget(os.Args[2:])
+	case "probe":
+		err = cmdProbe(os.Args[2:])
+	case "mesh":
+		err = cmdMesh(os.Args[2:])
 	case "user":
 		err = fmt.Errorf("user: not implemented until the dashboard milestone")
 	case "version", "--version":
