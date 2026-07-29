@@ -2,7 +2,7 @@
 
 ## Context
 
-Lighthouse is a brand-new open-source project (empty repo, first commit pending) providing real-time visibility into connectivity, latency, packet loss, and service reachability between geographically dispersed sites. The core problem: inter-site network issues (drops, latency spikes, asymmetric routing/firewall failures) happen when nobody is watching, and there is no historical, directional record to diagnose them afterward.
+Lighthouse is an open-source project providing real-time visibility into connectivity, latency, packet loss, and service reachability between geographically dispersed sites. The core problem: inter-site network issues (drops, latency spikes, asymmetric routing/firewall failures) happen when nobody is watching, and there is no historical, directional record to diagnose them afterward.
 
 Shape: a central control plane with a lightweight Go agent at each site (RHEL/systemd first; the wire contract is designed so future Windows/ESXi/Juniper agents are possible). Agents probe each other and designated endpoints, push results over mTLS on port 443, spool to disk when the control plane is unreachable, and pull their probe configuration from the control plane. A dashboard shows current + historical latency (min/avg/max/percentiles), packet loss, jitter, TCP connect and TLS handshake times, last successful test, recent outages, and traceroute path changes — **in both directions per site pair** — over 7/30/90/365-day windows.
 
@@ -83,7 +83,7 @@ Config delivery: server streams **full snapshots** (not diffs); agent diffs loca
 
 Relational tables: `sites`, `agents` (incl. `probe_address` peers should target, `last_seen_at`), `targets` (kind `agent`|`external`), `probe_configs`, `mesh_groups` + `mesh_members`, `join_tokens` (sha256 hash, single-use, expiring), `certificates` (serial, revoked_at), `users` (argon2id) + `sessions`, `outage_events`, `series_state` (hysteresis counters, restart-durable), `path_events`, `traceroute_current`.
 
-Raw hypertable `probe_results` (1-day chunks; narrow fixed-width columns: loss_pct, rtt min/avg/max µs, jitter, dns/tcp/tls/ttfb/total µs; traceroute hops go to `traceroute_current`/`path_events`, not the hypertable). Index `(agent_id, target_id, probe_type, time DESC)`.
+Raw hypertable `probe_results` (1-day chunks; narrow fixed-width columns: loss_pct, rtt min/avg/max/stddev µs, jitter, dns/tcp/tls/ttfb/total µs, plus one truncated `error` text — NULL on success — so failures are self-explanatory in the DB; traceroute hops go to `traceroute_current`/`path_events`, not the hypertable). Index `(agent_id, target_id, probe_type, time DESC)`; unique `(agent_id, probe_id, time)` so at-least-once spool replay dedupes on insert.
 
 **Percentiles: TimescaleDB Toolkit `percentile_agg` (UddSketch)** — rollup-able, so daily aggregates derive from hourly and `approx_percentile(0.5|0.95|0.99, rollup(...))` answers any window. Toolkit is a hard dependency: preflight fails loud if the extension is missing (ships in `timescale/timescaledb-ha`).
 

@@ -123,6 +123,13 @@ func (s *Store) EnrollAgent(ctx context.Context, token, hostname, probeAddress, 
 			agentID, siteID, hostname, probeAddress, version); err != nil {
 			return uuid.Nil, uuid.Nil, fmt.Errorf("enroll: create agent: %w", err)
 		}
+		// Every agent is a probeable mesh target from the moment it exists.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO targets (kind, name, agent_id)
+			VALUES ('agent', 'agent:' || $2, $1)`,
+			agentID, agentID.String()); err != nil {
+			return uuid.Nil, uuid.Nil, fmt.Errorf("enroll: create agent target: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE join_tokens SET used_at = now(), used_by_agent = $2, used_csr_hash = $3
 			WHERE id = $1`,
