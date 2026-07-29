@@ -17,6 +17,7 @@ import (
 
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/ca"
+	"github.com/devalexllc/lighthouse/internal/server/meshexpand"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 	"github.com/google/uuid"
 )
@@ -26,8 +27,9 @@ type Server struct {
 	pb.UnimplementedEnrollmentServiceServer
 	pb.UnimplementedAgentServiceServer
 
-	store *store.Store
-	ca    *ca.CA
+	store     *store.Store
+	ca        *ca.CA
+	ownership ownershipCache
 }
 
 func New(st *store.Store, authority *ca.CA) *Server {
@@ -102,9 +104,11 @@ func (s *Server) Enroll(ctx context.Context, req *pb.EnrollRequest) (*pb.EnrollR
 	}, nil
 }
 
-// StreamConfig registers the agent as connected and pushes config snapshots.
-// M1: sends an empty snapshot and keeps the stream open as liveness; probe
-// distribution lands in M2.
+// StreamConfig registers the agent as connected and pushes config snapshots:
+// a full snapshot on connect (unless the agent already runs it), then a fresh
+// full snapshot whenever a rebuild on the liveness tick yields a new hash.
+// Admin CLI changes converge within one tick (~30 s) — the CLI runs in a
+// separate process, so the database is the only change-propagation medium.
 func (s *Server) StreamConfig(hello *pb.AgentHello, stream grpc.ServerStreamingServer[pb.ConfigSnapshot]) error {
 	ctx := stream.Context()
 	id, err := s.authenticateAgent(ctx)
@@ -113,11 +117,25 @@ func (s *Server) StreamConfig(hello *pb.AgentHello, stream grpc.ServerStreamingS
 	}
 	slog.Info("agent connected", "agent", id.AgentID, "version", hello.GetAgentVersion())
 
-	snapshot := &pb.ConfigSnapshot{ConfigHash: "empty"}
+	buildSnapshot := func() (*pb.ConfigSnapshot, error) {
+		in, err := s.store.LoadAgentConfigInputs(ctx, id.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		return meshexpand.BuildSnapshot(in), nil
+	}
+
+	snapshot, err := buildSnapshot()
+	if err != nil {
+		slog.Error("config snapshot build failed", "agent", id.AgentID, "err", err)
+		return status.Error(codes.Unavailable, "config unavailable")
+	}
 	if hello.GetConfigHash() != snapshot.GetConfigHash() {
 		if err := stream.Send(snapshot); err != nil {
 			return err
 		}
+		slog.Info("config snapshot sent", "agent", id.AgentID,
+			"hash", snapshot.GetConfigHash(), "probes", len(snapshot.GetProbes()))
 	}
 	if err := s.store.TouchAgent(ctx, id.AgentID, hello.GetAgentVersion(), snapshot.GetConfigHash()); err != nil {
 		slog.Error("touch agent failed", "err", err)
@@ -146,6 +164,19 @@ func (s *Server) StreamConfig(hello *pb.AgentHello, stream grpc.ServerStreamingS
 				slog.Info("dropping stream for revoked certificate", "agent", id.AgentID)
 				return status.Error(codes.PermissionDenied, "certificate revoked")
 			}
+			// Config staleness must not kill the stream (liveness and
+			// revocation checking matter more): a failed rebuild keeps the
+			// last snapshot and retries next tick.
+			if fresh, err := buildSnapshot(); err != nil {
+				slog.Error("config snapshot rebuild failed", "agent", id.AgentID, "err", err)
+			} else if fresh.GetConfigHash() != snapshot.GetConfigHash() {
+				if err := stream.Send(fresh); err != nil {
+					return err
+				}
+				snapshot = fresh
+				slog.Info("config snapshot sent", "agent", id.AgentID,
+					"hash", snapshot.GetConfigHash(), "probes", len(snapshot.GetProbes()))
+			}
 			if err := s.store.TouchAgent(ctx, id.AgentID, hello.GetAgentVersion(), snapshot.GetConfigHash()); err != nil {
 				slog.Error("touch agent failed", "err", err)
 			}
@@ -153,8 +184,10 @@ func (s *Server) StreamConfig(hello *pb.AgentHello, stream grpc.ServerStreamingS
 	}
 }
 
-// PushResults ingests a result batch. M1: authenticates and acknowledges;
-// storage lands with the probe_results hypertable in M2.
+// PushResults ingests a result batch. The agent identity comes exclusively
+// from the mTLS certificate; each result's target must be currently assigned
+// to that agent or the row is rejected (direction identity stays unforgeable).
+// Rejections are counted and logged, never silent.
 func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*pb.PushResultsResponse, error) {
 	id, err := s.authenticateAgent(ctx)
 	if err != nil {
@@ -164,7 +197,47 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 		slog.Warn("agent reported spooled results dropped",
 			"agent", id.AgentID, "dropped", req.GetDroppedSinceLastPush())
 	}
-	return &pb.PushResultsResponse{Accepted: uint32(len(req.GetResults()))}, nil
+	if len(req.GetResults()) > maxBatchSize {
+		return nil, status.Errorf(codes.InvalidArgument, "batch of %d exceeds the %d-result limit",
+			len(req.GetResults()), maxBatchSize)
+	}
+
+	now := time.Now()
+	rows := make([]store.ResultRow, 0, len(req.GetResults()))
+	rejected := 0
+	for _, r := range req.GetResults() {
+		row, err := resultToRow(r, now)
+		if err != nil {
+			rejected++
+			slog.Warn("rejecting malformed probe result", "agent", id.AgentID, "err", err)
+			continue
+		}
+		assigned, err := s.targetAssigned(ctx, id.AgentID, row.TargetID)
+		if err != nil {
+			slog.Error("target assignment check failed", "agent", id.AgentID, "err", err)
+			return nil, status.Error(codes.Unavailable, "assignment check failed, retry")
+		}
+		if !assigned {
+			rejected++
+			slog.Warn("rejecting result for target not assigned to agent",
+				"agent", id.AgentID, "target", row.TargetID, "probe", row.ProbeID)
+			continue
+		}
+		rows = append(rows, row)
+	}
+
+	if _, err := s.store.InsertResults(ctx, id.AgentID, rows); err != nil {
+		slog.Error("result insert failed", "agent", id.AgentID, "count", len(rows), "err", err)
+		// Unavailable: the agent keeps the batch spooled and retries.
+		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
+	}
+	if rejected > 0 {
+		slog.Warn("push contained rejected results", "agent", id.AgentID,
+			"accepted", len(rows), "rejected", rejected)
+	}
+	// Accepted covers every row this push consumed (dedupe-skipped rows were
+	// accepted on an earlier push): the agent must not re-send any of them.
+	return &pb.PushResultsResponse{Accepted: uint32(len(rows))}, nil
 }
 
 // RenewCert issues a fresh certificate to an already-authenticated agent.
