@@ -59,6 +59,31 @@ Full design + milestone plan: `docs/architecture.md`.
 - M1 (protos, CA, enrollment, mTLS session, revocation) — done; verified
   e2e in compose: enroll → connect through SNI proxy → last_seen updates →
   revocation drops live stream ≤30 s.
-- Next: M2 — scheduler, TCP/TLS/HTTP probes, spool, `probe_results`
-  hypertable, real config distribution (`meshexpand`). See the milestone
-  table in `docs/architecture.md`.
+- M2 (scheduler, TCP/TLS/HTTP probers, spool, `probe_results` hypertable,
+  PushResults ingest, `meshexpand` config distribution, probe-config CLI)
+  — done; gate verified in compose: TCP rows land with ~1 ms
+  `tcp_connect_us`; 5-minute server outage replays from spool with no gap
+  (max per-probe gap == its interval); tiny `spool.max_bytes` drops oldest
+  segments and the loss surfaces as `dropped_since_last_push`; revocation
+  still drops live streams ≤30 s.
+- Next: M3 — dashboard MVP (httpapi auth/sites/agents/matrix/pair series,
+  SPA, `web/embed.go`, `user add`). See the milestone table in
+  `docs/architecture.md`.
+
+### M2 notes worth knowing
+
+- Probe assignment lives in `probe_configs`: either direct
+  (`site_id`+`target_id`, run by every agent at that site) or a mesh
+  template (`mesh_id`, expanded over ordered site pairs). Mesh probe IDs
+  are `UUIDv5(mesh, "src|dst|type")` — stable across rebuilds and stored
+  in `probe_results`, so that derivation must never change.
+- Config changes propagate by DB polling on `StreamConfig`'s existing 30 s
+  tick (the admin CLI is a separate process), so edits converge in ≤30 s.
+- Ingest is strict: a result whose target is not currently assigned to the
+  sending agent is rejected and logged, keeping direction unforgeable.
+  Spooled results for a probe deleted mid-outage are lost by design.
+- Spool replay is at-least-once (in-segment read offset is memory-only);
+  the unique `(agent_id, probe_id, time)` index dedupes on insert.
+- `ConfigSnapshot.spool` (server-sent SpoolPolicy) is deliberately not
+  applied yet: agent config cannot distinguish unset from explicit, so
+  precedence is undecidable. Revisit when config gets pointer fields.
