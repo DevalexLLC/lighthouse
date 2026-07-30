@@ -29,13 +29,14 @@ type Prober interface {
 type Registry map[pb.ProbeType]Prober
 
 // DefaultRegistry returns the probers this agent build supports.
-// dns/traceroute land in M4.
+// traceroute lands in M4.
 func DefaultRegistry() Registry {
 	return Registry{
 		pb.ProbeType_PROBE_TYPE_ICMP: NewICMP(),
 		pb.ProbeType_PROBE_TYPE_TCP:  TCP{},
 		pb.ProbeType_PROBE_TYPE_TLS:  TLS{},
 		pb.ProbeType_PROBE_TYPE_HTTP: HTTP{},
+		pb.ProbeType_PROBE_TYPE_DNS:  DNS{},
 	}
 }
 
