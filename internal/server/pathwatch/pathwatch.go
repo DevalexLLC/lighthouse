@@ -114,14 +114,27 @@ func Apply(ctx context.Context, db DB, agentID uuid.UUID, runs []Run) ([]Change,
 			return nil, err
 		}
 		for _, r := range batch {
-			switch decide(cur, r) {
-			case actionSkip:
+			act := decide(cur, r)
+			if act == actionSkip {
 				continue
-			case actionInsert, actionRefresh:
-				if err := upsertCurrent(ctx, db, agentID, r); err != nil {
+			}
+			// Upsert before recording anything: if the stale guard skipped
+			// it, a concurrent transaction won a first-sighting race with a
+			// newer run — reload (and this time lock) the real current row
+			// so the rest of the batch folds against actual state instead
+			// of a path that was never current.
+			applied, err := upsertCurrent(ctx, db, agentID, r)
+			if err != nil {
+				return nil, err
+			}
+			if !applied {
+				cur, err = lockCurrent(ctx, db, agentID, probeID)
+				if err != nil {
 					return nil, err
 				}
-			case actionChange:
+				continue
+			}
+			if act == actionChange {
 				var eventID uuid.UUID
 				err := db.QueryRow(ctx, `
 					INSERT INTO path_events (time, agent_id, probe_id, target_id,
@@ -132,9 +145,6 @@ func Apply(ctx context.Context, db DB, agentID uuid.UUID, runs []Run) ([]Change,
 					cur.pathHash, r.PathHash, cur.hops, r.Hops).Scan(&eventID)
 				if err != nil {
 					return nil, fmt.Errorf("insert path event: %w", err)
-				}
-				if err := upsertCurrent(ctx, db, agentID, r); err != nil {
-					return nil, err
 				}
 				changes = append(changes, Change{EventID: eventID, ProbeID: probeID})
 			}
@@ -159,8 +169,14 @@ func lockCurrent(ctx context.Context, db DB, agentID, probeID uuid.UUID) (*curre
 	return &cur, nil
 }
 
-func upsertCurrent(ctx context.Context, db DB, agentID uuid.UUID, r Run) error {
-	_, err := db.Exec(ctx, `
+// upsertCurrent makes r the series' current path unless a newer one is
+// already recorded; applied reports whether the write took effect. The
+// stale guard covers concurrent first sightings: FOR UPDATE cannot lock a
+// missing row, so two initial transactions may both decide to insert — the
+// guard keeps the newer run current regardless of commit order. While the
+// caller holds the row lock (cur was loaded), the guard never skips.
+func upsertCurrent(ctx context.Context, db DB, agentID uuid.UUID, r Run) (applied bool, err error) {
+	tag, err := db.Exec(ctx, `
 		INSERT INTO traceroute_current (agent_id, probe_id, target_id, updated_at,
 			dest_reached, path_hash, hops)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -169,10 +185,11 @@ func upsertCurrent(ctx context.Context, db DB, agentID uuid.UUID, r Run) error {
 			updated_at = EXCLUDED.updated_at,
 			dest_reached = EXCLUDED.dest_reached,
 			path_hash = EXCLUDED.path_hash,
-			hops = EXCLUDED.hops`,
+			hops = EXCLUDED.hops
+		WHERE traceroute_current.updated_at < EXCLUDED.updated_at`,
 		agentID, r.ProbeID, r.TargetID, r.Time, r.DestReached, r.PathHash, r.Hops)
 	if err != nil {
-		return fmt.Errorf("upsert traceroute_current: %w", err)
+		return false, fmt.Errorf("upsert traceroute_current: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }

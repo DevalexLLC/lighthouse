@@ -134,6 +134,14 @@ func Apply(ctx context.Context, db DB, agentID uuid.UUID, results []Result) ([]T
 		return string(probeIDs[i][:]) < string(probeIDs[j][:])
 	})
 
+	// FOR UPDATE cannot lock a row that does not exist yet, so two
+	// concurrent first writers for the same series would each fold from
+	// zero. Seed missing series with an empty state first — the
+	// speculative insert makes the loser wait for the winner to commit,
+	// after which the SELECT sees and locks a real row.
+	if err := ensureStates(ctx, db, agentID, probeIDs, bySeries); err != nil {
+		return nil, err
+	}
 	states, err := lockStates(ctx, db, agentID, probeIDs)
 	if err != nil {
 		return nil, err
@@ -173,6 +181,31 @@ func Apply(ctx context.Context, db DB, agentID uuid.UUID, results []Result) ([]T
 		}
 	}
 	return transitions, nil
+}
+
+// ensureStates inserts an empty state row for every series missing one.
+// last_time seeds as Go's zero time (year 1, round-trips exactly through
+// timestamptz) — NOT the epoch, which would silently discard accepted
+// results from unset host clocks — so folding proceeds exactly as from a
+// zero State.
+func ensureStates(ctx context.Context, db DB, agentID uuid.UUID, probeIDs []uuid.UUID, bySeries map[uuid.UUID][]Result) error {
+	n := len(probeIDs)
+	targetIDs := make([]uuid.UUID, n)
+	probeTypes := make([]int16, n)
+	for i, id := range probeIDs {
+		first := bySeries[id][0]
+		targetIDs[i], probeTypes[i] = first.TargetID, first.ProbeType
+	}
+	_, err := db.Exec(ctx, `
+		INSERT INTO series_state (agent_id, probe_id, target_id, probe_type, last_status, last_time)
+		SELECT $1, u.probe_id, u.target_id, u.probe_type, 0, '0001-01-01T00:00:00Z'::timestamptz
+		FROM unnest($2::uuid[], $3::uuid[], $4::smallint[]) AS u(probe_id, target_id, probe_type)
+		ON CONFLICT (agent_id, probe_id) DO NOTHING`,
+		agentID, probeIDs, targetIDs, probeTypes)
+	if err != nil {
+		return fmt.Errorf("seed series_state: %w", err)
+	}
+	return nil
 }
 
 func lockStates(ctx context.Context, db DB, agentID uuid.UUID, probeIDs []uuid.UUID) (map[uuid.UUID]State, error) {

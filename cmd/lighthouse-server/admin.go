@@ -48,6 +48,11 @@ func validateTrain(count int, spacing, timeout time.Duration) error {
 		return fmt.Errorf("--train-count and --train-spacing must not be negative")
 	}
 	if count == 0 {
+		// Snapshot building only forwards spacing alongside a positive
+		// count; accepting spacing alone would silently no-op on the agent.
+		if spacing > 0 {
+			return fmt.Errorf("--train-spacing requires --train-count")
+		}
 		return nil
 	}
 	effSpacing := spacing

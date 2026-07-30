@@ -60,6 +60,7 @@ func TestValidateTrain(t *testing.T) {
 		wantErr bool
 	}{
 		{"no train", 0, 0, 5 * time.Second, false},
+		{"spacing without count is a silent no-op, reject", 0, 100 * time.Millisecond, 5 * time.Second, true},
 		{"default train fits", 10, 0, 5 * time.Second, false}, // 10×200ms = 2s < 5s
 		{"default train too long", 10, 0, 2 * time.Second, true},
 		{"explicit spacing fits", 5, 100 * time.Millisecond, time.Second, false},
