@@ -1,0 +1,29 @@
+# Lighthouse site agent. M4 ships the capability-correct unit; the fully
+# hardened unit (ProtectSystem=strict etc.) and the RPM land in M6.
+[Unit]
+Description=Lighthouse site agent
+Documentation=https://github.com/devalexllc/lighthouse
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lighthouse
+Group=lighthouse
+# /var/lib/lighthouse-agent, owned by the service user.
+StateDirectory=lighthouse-agent
+# Fail loud before starting: a misconfigured install (no ICMP capability,
+# unwritable spool, bad YAML) blocks here with every problem named.
+ExecStartPre=/usr/bin/lighthouse-agent selfcheck --config /etc/lighthouse/agent.yaml
+ExecStart=/usr/bin/lighthouse-agent run --config /etc/lighthouse/agent.yaml
+# Raw ICMP for the traceroute prober and the echo prober's fallback path.
+# Alternative for echo-only deployments: net.ipv4.ping_group_range covering
+# the lighthouse group enables unprivileged datagram ICMP (see README.md),
+# but traceroute still needs CAP_NET_RAW.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
