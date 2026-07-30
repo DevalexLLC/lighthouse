@@ -53,7 +53,7 @@ Full design + milestone plan: `docs/architecture.md`.
   editing `0001_init.sql` is fine; recreate dev DBs with `down -v`.
 - Conventional Commits (`feat(scope): ...`); see CONTRIBUTING.md.
 
-## Status (as of 2026-07-29)
+## Status (as of 2026-07-30)
 
 - M0 (scaffolding, strict config, compose stack) — done.
 - M1 (protos, CA, enrollment, mTLS session, revocation) — done; verified
@@ -66,9 +66,15 @@ Full design + milestone plan: `docs/architecture.md`.
   (max per-probe gap == its interval); tiny `spool.max_bytes` drops oldest
   segments and the loss surfaces as `dropped_since_last_push`; revocation
   still drops live streams ≤30 s.
-- Next: M3 — dashboard MVP (httpapi auth/sites/agents/matrix/pair series,
-  SPA, `web/embed.go`, `user add`). See the milestone table in
-  `docs/architecture.md`.
+- M3 (dashboard MVP: httpapi auth/sites/agents/matrix/pair series from raw,
+  React/TS SPA with uPlot, `web/embed.go`, `user add`) — done; gate verified
+  in compose through the SNI proxy: login → live matrix (6 ordered pairs,
+  mesh cells CONN_REFUSED/down as expected pre-M4), pair series bucketed and
+  advancing, CSRF/logout/rate-limit behave, dev `lon→dashboard` HTTP probe
+  still OK against the SPA. Browser-visual pass happens on a machine with a
+  browser (`https://localhost:9443`, self-signed cert).
+- Next: M4 — ICMP/DNS/traceroute probers, outage + path detection. See the
+  milestone table in `docs/architecture.md`.
 
 ### M2 notes worth knowing
 
@@ -87,3 +93,34 @@ Full design + milestone plan: `docs/architecture.md`.
 - `ConfigSnapshot.spool` (server-sent SpoolPolicy) is deliberately not
   applied yet: agent config cannot distinguish unset from explicit, so
   precedence is undecidable. Revisit when config gets pointer fields.
+
+### M3 notes worth knowing
+
+- Until M4's ICMP prober lands, no probe measures true RTT: dashboard
+  latency is `COALESCE(rtt_avg_us, tcp_connect_us, tls_handshake_us,
+  ttfb_us, total_us)` per row (`internal/server/store/dashboard.go`), and
+  every API response carries `latency_source` so the UI labels the axis
+  honestly. Keep that order if columns are added.
+- Auth model: argon2id (PHC-encoded, params parsed from the stored hash —
+  cost changes never invalidate users), `lighthouse_session` cookie
+  (HttpOnly/Secure/SameSite=Strict, 7-day absolute expiry), sessions store
+  only the sha256 of the token, CSRF = per-session token required in
+  `X-CSRF-Token` on non-GET. Login burns a dummy hash for unknown users
+  (timing) and returns byte-identical 401s; per-IP fixed-window rate limit
+  (RemoteAddr is real — the proxy is TCP passthrough, never trust XFF).
+- Matrix = latest result per (agent, agent-target, probe type) within a
+  10-min horizon folded per ordered site pair; configured-but-silent pairs
+  render `stale`; external targets are excluded (no destination site).
+  Window→bucket map lives in `httpapi/windows.go` (24h window is a
+  dev-facing extra beyond the spec'd 7/30/90/365d; same code path).
+- httpapi's `DB` is an interface; handler tests run offline against
+  `fakeDB` (`httpapi_test.go`) — keep new endpoints testable that way. SQL
+  correctness is compose-gate territory.
+- UI changes: edit `web/src/`, then `make web` and commit the regenerated
+  `web/dist/` in the SAME commit (go:embed all:dist — a missing/stale dist
+  breaks or lies). Dev loop: `make up` + `cd web && npm run dev` (Vite
+  proxies /api to https://localhost:9443). Dev dashboard login:
+  `admin`/`lighthouse-dev` (seeded by bootstrap).
+- The SPA fallback serves index.html for unknown non-/api GETs only;
+  unmatched `/api/*` must stay JSON 404 and `/healthz` unauthenticated
+  (tests enforce both).

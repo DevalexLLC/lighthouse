@@ -154,7 +154,7 @@ browsers ──HTTPS────▶ │ nginx     │  SNI: lh.example ───
 *Verify:* TCP probe against compose Postgres lands rows with sane `tcp_connect_us`; stop server 5 min → spool → restart → full replay, no gap; overflow drops oldest and reports `dropped_since_last_push`.
 
 **M3 — Dashboard MVP (2 wk).** httpapi (auth, sites, agents, matrix, pair series from raw), SPA (login, matrix, pair drill-down chart), `web/embed.go`, `user add`.
-*Verify:* browser login on :8443; live matrix; pair chart updates.
+*Verify:* browser login through the proxy (dev: https://localhost:9443, self-signed cert); live matrix; pair chart updates.
 
 **M4 — ICMP/DNS/traceroute, outage + path detection (2 wk).** icmp/dns/traceroute probers, jitter/loss, `outage`+`pathwatch`, related migrations, outages/path UI, systemd unit with CAP_NET_RAW.
 *Verify:* `iptables … -j DROP` in an agent container → exactly one outage after 3 failures, closes after unblock + 3 successes; netem reroute → `path_events` row + UI diff.
@@ -167,7 +167,7 @@ browsers ──HTTPS────▶ │ nginx     │  SNI: lh.example ───
 
 ## Dev environment
 
-Dev compose = production compose (`deploy/compose/`: proxy + server + timescaledb) plus a dev overlay (`deploy/compose-dev/`): `agent-{nyc,lon,syd}` containers (a one-shot bootstrap service mints dev tokens; `cap_add: NET_RAW`), optional netem profile (`delay 80ms loss 2%`) for realistic charts. Using the same base compose in dev exercises the SNI-passthrough path continuously. `make dev` runs the server locally + Vite proxy for SPA hot-reload; `make up` brings up the full containerized stack.
+Dev compose = production compose (`deploy/compose/`: proxy + server + timescaledb) plus a dev overlay (`deploy/compose-dev/`): `agent-{nyc,lon,syd}` containers (a one-shot bootstrap service mints dev tokens and seeds a dashboard login `admin`/`lighthouse-dev`; `cap_add: NET_RAW`), optional netem profile (`delay 80ms loss 2%`) for realistic charts. Using the same base compose in dev exercises the SNI-passthrough path continuously. `make dev` runs the server locally + Vite proxy for SPA hot-reload; `make up` brings up the full containerized stack.
 
 **Note:** `make up` must always include the dev overlay in dev environments — a prior lesson: restarting only the core compose silently drops overlay services (fake agents' tokens, monitoring). Makefile targets should be explicit about which files they compose.
 
