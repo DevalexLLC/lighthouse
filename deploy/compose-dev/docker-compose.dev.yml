@@ -61,7 +61,7 @@ services:
       dockerfile: deploy/docker/agent.Dockerfile
     image: lighthouse-agent:dev
     restart: unless-stopped
-    cap_add: [NET_RAW]
+    cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container
     environment:
       LIGHTHOUSE_SITE: nyc
     volumes:
@@ -74,7 +74,7 @@ services:
     build: *agent-build
     image: lighthouse-agent:dev
     restart: unless-stopped
-    cap_add: [NET_RAW]
+    cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container
     environment:
       LIGHTHOUSE_SITE: lon
     volumes:
@@ -87,7 +87,7 @@ services:
     build: *agent-build
     image: lighthouse-agent:dev
     restart: unless-stopped
-    cap_add: [NET_RAW]
+    cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container
     environment:
       LIGHTHOUSE_SITE: syd
     volumes:
