@@ -18,3 +18,6 @@ web/node_modules/
 
 # TypeScript incremental build cache
 web/tsconfig.tsbuildinfo
+
+# Local screenshots (conversation attachments, never project files)
+/Screenshot*.png

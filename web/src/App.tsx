@@ -70,11 +70,12 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <a className="brand" href="#/">
+          <span className="beacon" aria-hidden="true" />
           Lighthouse
         </a>
         <div className="topbar-right">
           <span className="username">
-            {user.username} ({user.role})
+            {user.username} <span className="role">· {user.role}</span>
           </span>
           <button className="linklike" onClick={logout}>
             Log out

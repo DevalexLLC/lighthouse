@@ -31,8 +31,12 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1>Lighthouse</h1>
-        <label>
+        <div className="login-mark">
+          <span className="beacon" aria-hidden="true" />
+          <h1>Lighthouse</h1>
+        </div>
+        <p className="login-sub eyebrow">inter-site connectivity watch</p>
+        <label className="eyebrow">
           Username
           <input
             autoFocus
@@ -41,7 +45,7 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
             onChange={(e) => setUsername(e.target.value)}
           />
         </label>
-        <label>
+        <label className="eyebrow">
           Password
           <input
             type="password"

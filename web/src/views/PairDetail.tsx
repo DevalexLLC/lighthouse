@@ -9,11 +9,11 @@ import { WINDOWS } from '../types'
 const POLL_MS = 60_000
 type Metric = 'latency' | 'loss'
 
-// Direction colors are categorical slots 1 (blue) and 2 (orange), stepped
-// per color scheme; both pairs validate CVD + contrast on their surface.
+// Direction colors are categorical slots 1 (blue, outbound) and 2 (orange,
+// return), stepped per color scheme; both pairs validate CVD + contrast.
 const COLORS = {
-  light: { aToB: '#2a78d6', bToA: '#eb6834', grid: '#e3e2de', axis: '#52514e' },
-  dark: { aToB: '#3987e5', bToA: '#d95926', grid: '#333330', axis: '#c3c2b7' },
+  light: { aToB: '#2a78d6', bToA: '#eb6834', grid: '#e0dfd9', axis: '#55544d' },
+  dark: { aToB: '#3987e5', bToA: '#d95926', grid: '#30312d', axis: '#b9b8ae' },
 }
 
 function palette() {
@@ -29,20 +29,41 @@ function toChartData(points: SeriesPoint[], metric: Metric): uPlot.AlignedData {
   return [ts, points.map((p) => ms(p.avg_us)), points.map((p) => ms(p.min_us)), points.map((p) => ms(p.max_us))]
 }
 
-function DirectionCard({ title, s }: { title: string; s: DirectionSummary }) {
+function hasAnyValue(points: SeriesPoint[], metric: Metric): boolean {
+  return metric === 'loss'
+    ? points.some((p) => p.loss_pct != null)
+    : points.some((p) => p.avg_us != null)
+}
+
+function DirectionCard({
+  title,
+  s,
+  dir,
+}: {
+  title: string
+  s: DirectionSummary
+  dir: 'a' | 'b'
+}) {
   return (
-    <div className={'pair-card status-border-' + s.status}>
-      <h3>{title}</h3>
+    <div className={'pair-card dir-' + dir}>
+      <h3>
+        <span className={'swatch series-' + dir} />
+        {title}
+        <span style={{ marginLeft: 'auto' }} className={'status-text-' + s.status}>
+          {s.status}
+        </span>
+      </h3>
+      <div className="pair-headline">
+        <span className="big">{fmtLatency(s.latency.avg_us)}</span>
+        <span className="eyebrow">
+          avg {latencyAxisLabel(s.latency_source).replace(' (ms)', '')}
+        </span>
+      </div>
       <dl>
         <div>
-          <dt>Status</dt>
-          <dd className={'status-text-' + s.status}>{s.status}</dd>
-        </div>
-        <div>
-          <dt>{latencyAxisLabel(s.latency_source).replace(' (ms)', '')} min / avg / max</dt>
+          <dt>min / max</dt>
           <dd>
-            {fmtLatency(s.latency.min_us)} / {fmtLatency(s.latency.avg_us)} /{' '}
-            {fmtLatency(s.latency.max_us)}
+            {fmtLatency(s.latency.min_us)} / {fmtLatency(s.latency.max_us)}
           </dd>
         </div>
         <div>
@@ -124,12 +145,12 @@ export default function PairDetail({
               { label: 'max', stroke, width: 1, alpha: 0.4, spanGaps: false },
             ]
       return {
-        height: 220,
+        height: 230,
         series,
         scales: metric === 'loss' ? { y: { range: [0, 100] } } : {},
         axes: [
           { ...axisStyle },
-          { ...axisStyle, label: axisLabel, size: 60 },
+          { ...axisStyle, label: axisLabel, size: 64 },
         ],
         cursor: { drag: { x: true, y: false } },
         legend: { live: true },
@@ -142,17 +163,32 @@ export default function PairDetail({
   if (!series || !pair) return <p className="muted">Loading…</p>
 
   const axisLabel = metric === 'loss' ? 'Loss (%)' : latencyAxisLabel(series.latency_source)
+  const bucketLabel =
+    series.resolution_s >= 3600
+      ? `${series.resolution_s / 3600} h buckets`
+      : `${series.resolution_s / 60} min buckets`
+
+  const directions: {
+    key: 'a_to_b' | 'b_to_a'
+    dir: 'a' | 'b'
+    chart: 'aToB' | 'bToA'
+    title: string
+  }[] = [
+    { key: 'a_to_b', dir: 'a', chart: 'aToB', title: `${a} → ${b}` },
+    { key: 'b_to_a', dir: 'b', chart: 'bToA', title: `${b} → ${a}` },
+  ]
 
   return (
-    <section>
-      <div className="section-head">
-        <h2>
-          <a href="#/">Matrix</a> / {a} ⇄ {b}
-        </h2>
-        <span className="muted">
-          {series.resolution_s >= 3600
-            ? `${series.resolution_s / 3600} h buckets`
-            : `${series.resolution_s / 60} min buckets`}
+    <>
+      <div className="page-head">
+        <div>
+          <div className="eyebrow">Pair detail</div>
+          <h2>
+            <a href="#/">Matrix</a> / {a} ⇄ {b}
+          </h2>
+        </div>
+        <span className="sub">
+          {bucketLabel}
           {error ? ' · refresh failed, showing last data' : ''}
         </span>
       </div>
@@ -175,22 +211,37 @@ export default function PairDetail({
       </div>
 
       <div className="pair-cards">
-        <DirectionCard title={`${a} → ${b}`} s={pair.a_to_b} />
-        <DirectionCard title={`${b} → ${a}`} s={pair.b_to_a} />
+        <DirectionCard title={`${a} → ${b}`} s={pair.a_to_b} dir="a" />
+        <DirectionCard title={`${b} → ${a}`} s={pair.b_to_a} dir="b" />
       </div>
 
-      <div className="chart-block">
-        <h3>
-          <span className="swatch series-a" /> {a} → {b}
-        </h3>
-        <Chart options={mkOptions('aToB', axisLabel)} data={toChartData(series.a_to_b.points, metric)} />
-      </div>
-      <div className="chart-block">
-        <h3>
-          <span className="swatch series-b" /> {b} → {a}
-        </h3>
-        <Chart options={mkOptions('bToA', axisLabel)} data={toChartData(series.b_to_a.points, metric)} />
-      </div>
-    </section>
+      {directions.map(({ key, dir, chart, title }) => {
+        const points = series[key].points
+        return (
+          <div key={key} className="card chart-card">
+            <h3>
+              <span className={'swatch series-' + dir} /> {title}
+            </h3>
+            {points.length === 0 ? (
+              <div className="chart-empty">
+                <p>No probe results in this window yet. New results arrive on each probe interval.</p>
+              </div>
+            ) : metric === 'latency' && !hasAnyValue(points, metric) ? (
+              <div className="chart-empty">
+                <p>
+                  Every probe in this window failed, so there are no latencies to plot.{' '}
+                  <button className="linklike" onClick={() => setMetric('loss')}>
+                    Switch to the loss view
+                  </button>{' '}
+                  to see the failures over time.
+                </p>
+              </div>
+            ) : (
+              <Chart options={mkOptions(chart, axisLabel)} data={toChartData(points, metric)} />
+            )}
+          </div>
+        )
+      })}
+    </>
   )
 }
