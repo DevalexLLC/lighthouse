@@ -64,7 +64,7 @@ func main() {
 	case "mesh":
 		err = cmdMesh(os.Args[2:])
 	case "user":
-		err = fmt.Errorf("user: not implemented until the dashboard milestone")
+		err = cmdUser(os.Args[2:])
 	case "version", "--version":
 		fmt.Println("lighthouse-server", version.String())
 		return
