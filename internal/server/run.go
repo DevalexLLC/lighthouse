@@ -21,9 +21,10 @@ import (
 	"github.com/devalexllc/lighthouse/internal/server/ca"
 	"github.com/devalexllc/lighthouse/internal/server/config"
 	"github.com/devalexllc/lighthouse/internal/server/grpcapi"
+	"github.com/devalexllc/lighthouse/internal/server/httpapi"
 	"github.com/devalexllc/lighthouse/internal/server/migrate"
 	"github.com/devalexllc/lighthouse/internal/server/store"
-	"github.com/devalexllc/lighthouse/internal/version"
+	"github.com/devalexllc/lighthouse/web"
 )
 
 // Run performs preflight and serves until ctx is cancelled. Every preflight
@@ -96,16 +97,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("listen http %s: %w", cfg.Listen.HTTP, err)
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "ok")
-	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// M3 replaces this with the embedded SPA.
-		fmt.Fprintf(w, "Lighthouse %s — dashboard coming soon\n", version.String())
-	})
 	httpServer := &http.Server{
-		Handler:           mux,
+		Handler:           httpapi.New(st, web.Dist()),
 		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{dashboardCert}},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
