@@ -1,3 +1,18 @@
+# codeberg.org/miekg/dns v0.6.86
+## explicit; go 1.25.0
+codeberg.org/miekg/dns
+codeberg.org/miekg/dns/deleg
+codeberg.org/miekg/dns/dnsutil
+codeberg.org/miekg/dns/internal/ddd
+codeberg.org/miekg/dns/internal/dnslex
+codeberg.org/miekg/dns/internal/dnsstring
+codeberg.org/miekg/dns/internal/jump
+codeberg.org/miekg/dns/internal/pack
+codeberg.org/miekg/dns/internal/reverse
+codeberg.org/miekg/dns/internal/unpack
+codeberg.org/miekg/dns/pkg/pool
+codeberg.org/miekg/dns/rdata
+codeberg.org/miekg/dns/svcb
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
@@ -32,15 +47,23 @@ github.com/jackc/puddle/v2/internal/genstack
 ## explicit; go 1.25.0
 golang.org/x/crypto/argon2
 golang.org/x/crypto/blake2b
+golang.org/x/crypto/cryptobyte
+golang.org/x/crypto/cryptobyte/asn1
 # golang.org/x/net v0.56.0
 ## explicit; go 1.25.0
+golang.org/x/net/bpf
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
+golang.org/x/net/icmp
 golang.org/x/net/idna
 golang.org/x/net/internal/httpcommon
 golang.org/x/net/internal/httpsfv
+golang.org/x/net/internal/iana
+golang.org/x/net/internal/socket
 golang.org/x/net/internal/timeseries
+golang.org/x/net/ipv4
+golang.org/x/net/ipv6
 golang.org/x/net/trace
 # golang.org/x/sync v0.22.0
 ## explicit; go 1.25.0
