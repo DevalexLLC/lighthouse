@@ -61,4 +61,16 @@ if ! printf '%s\n' "$probes" | grep -qE "tcp +mesh:core "; then
     lighthouse-server probe add --config "$CONFIG" \
         --mesh core --type tcp --interval 30s --timeout 5s --param port=9
 fi
+
+# Dev-only dashboard login (admin / lighthouse-dev). Piped stdin exercises
+# user add's non-interactive mode; a rerun hits the unique username and is
+# tolerated, any other failure aborts loudly.
+echo "bootstrap: seeding dashboard admin user"
+if ! out=$(printf 'lighthouse-dev' | lighthouse-server user add \
+        --config "$CONFIG" --username admin --admin 2>&1); then
+    case "$out" in
+        *"already exists"*) echo "bootstrap: dashboard admin already exists" ;;
+        *) echo "$out" >&2; exit 1 ;;
+    esac
+fi
 echo "bootstrap: done"
