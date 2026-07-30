@@ -95,8 +95,8 @@ Continuous aggregates: `probe_results_hourly` (from raw: samples, ok_samples, mi
 - **Prober interface:** `Run(ctx, spec) *pb.ProbeResult`, registry keyed by ProbeType.
 - **ICMP:** unprivileged datagram ICMP first (`x/net/icmp` udp4, works when `net.ipv4.ping_group_range` covers the service group), fallback raw socket via systemd `AmbientCapabilities=CAP_NET_RAW`; `selfcheck` verifies at install. Trains of `train_count` (default 10) echoes spaced 200 ms → loss %, min/avg/max/stddev.
 - **Jitter:** RFC 3550 smoothing `J += (|RTTᵢ−RTTᵢ₋₁|−J)/16` across consecutive RTTs, carried per-series across runs.
-- **TCP/TLS:** timed `DialContext` + `tls.Client.HandshakeContext`. **HTTP(S):** `httptrace` → dns/tcp/tls/ttfb/total + expected-status assertion. **DNS:** `miekg/dns`, configurable resolver/qname/qtype, RCODE check.
-- **Traceroute:** UDP with incrementing TTL, ICMP time-exceeded on the same socket capability; 3 probes/hop, max 30 hops, slower interval (~5 min); `path_hash = sha256(hop IPs)`.
+- **TCP/TLS:** timed `DialContext` + `tls.Client.HandshakeContext`. **HTTP(S):** `httptrace` → dns/tcp/tls/ttfb/total + expected-status assertion. **DNS:** `codeberg.org/miekg/dns` (v2), configurable resolver/qname/qtype, RCODE check.
+- **Traceroute:** UDP with incrementing TTL, ICMP time-exceeded read on a **raw** ICMP socket — unprivileged datagram ICMP does not deliver errors elicited by another socket's packets, so traceroute strictly requires CAP_NET_RAW (missing capability = ERROR result every cadence, never a skip); 3 probes/hop, max 30 hops, slower interval (~5 min); `path_hash = sha256(hop IPs)`.
 
 ## Outage detection (server-side)
 

@@ -73,8 +73,24 @@ Full design + milestone plan: `docs/architecture.md`.
   advancing, CSRF/logout/rate-limit behave, dev `lon→dashboard` HTTP probe
   still OK against the SPA. Browser-visual pass happens on a machine with a
   browser (`https://localhost:9443`, self-signed cert).
-- Next: M4 — ICMP/DNS/traceroute probers, outage + path detection. See the
-  milestone table in `docs/architecture.md`.
+- M4 (ICMP/DNS/traceroute probers with loss + RFC 3550 jitter, `outage`
+  hysteresis + agent-silence sweep, `pathwatch`, migration 0004,
+  outages/path-events/traceroute API + SPA views, selfcheck, systemd unit
+  with CAP_NET_RAW, CLI probe types + train flags) — done; gate verified
+  in compose: all mesh cells flip to real RTT (`latency_source: rtt`,
+  ~100 µs trains with jitter); `iptables -p icmp -j DROP` in agent-syd →
+  exactly one `probe_failing` per genuinely failing series after 3
+  failures (a blanket ICMP drop also kills the reverse direction's echo
+  replies — narrow to `--icmp-type echo-request` to fail only one
+  direction), closed after unblock + 3 successes with `opened_at`/
+  `closed_at` bracketing the block window truthfully; re-IP of agent-nyc
+  (`docker network disconnect` + `connect --ip --alias agent-nyc`) →
+  `path_events` rows from both peers within one 2 m traceroute cadence,
+  hop diff rendered in the Paths view; `docker stop agent-lon` → one
+  `agent_offline` ≤2.5 m, closed 9 s after restart; zero duplicate open
+  events; offline `make build`/`make test` green.
+- Next: M5 — Toolkit percentiles, continuous aggregates, retention. See
+  the milestone table in `docs/architecture.md`.
 
 ### M2 notes worth knowing
 
@@ -121,6 +137,41 @@ Full design + milestone plan: `docs/architecture.md`.
   breaks or lies). Dev loop: `make up` + `cd web && npm run dev` (Vite
   proxies /api to https://localhost:9443). Dev dashboard login:
   `admin`/`lighthouse-dev` (seeded by bootstrap).
+### M4 notes worth knowing
+
+- A series is `(agent_id, probe_id)`. Hysteresis (open after 3 consecutive
+  failures, close after 3 successes) folds ONLY rows the insert genuinely
+  added — `InsertResultsTx` uses `ON CONFLICT DO NOTHING ... RETURNING` so
+  spool re-pushes can never double-count — and `series_state.last_time`
+  ignores out-of-order stragglers. `opened_at`/`closed_at` are the START of
+  the streak, not the threshold crossing. UNSUPPORTED counts as failure by
+  design. "Exactly one open event" is enforced by partial unique indexes,
+  not application logic.
+- `agent_offline` needs prior contact (`last_seen_at IS NOT NULL`) and both
+  signals silent: no result in 3× the agent's fastest applicable interval
+  AND `last_seen_at` older than 2 m. It coexists with `probe_failing`
+  (silence never advances series counters). `series_state` doubles as the
+  activity ledger so the sweep never scans the hypertable.
+- Traceroute rows carry run-level accounting only (`sent=1`,
+  `received=dest_reached`, ALL timings NULL) so pair loss/latency
+  aggregates stay unpoisoned; hops live in `traceroute_current`/
+  `path_events` only. Only complete (dest-reached) runs with a valid
+  32-byte agent-computed `path_hash` update paths — the server trusts the
+  hash per the proto contract. Traceroute strictly requires a raw ICMP
+  socket (CAP_NET_RAW); the echo prober works with datagram
+  (`ping_group_range`) OR raw, tried in that order each run.
+- The ICMP prober keeps per-series RFC 3550 jitter state in memory keyed by
+  probe_id (registry shares one instance); jitter is -1 until two
+  consecutive RTTs have ever been seen. DNS uses `codeberg.org/miekg/dns`
+  (v2, pre-1.0, pinned by vendoring) — its default transport has fixed 2 s
+  timeouts, so the prober derives transport timeouts from the run deadline.
+- Dev agents get `NET_ADMIN` + iptables/iproute2 (overlay/dev image only)
+  for gate injections. Path-change injection: move the destination's IP
+  with `docker network disconnect` + `connect --ip <new> --alias
+  agent-<site> --alias lighthouse-agent-<site>-1` — probers resolve the
+  alias fresh each run. netem can't change hops on the flat bridge.
+- `probe add` validates `train_count × train_spacing < timeout` because the
+  agent budgets the whole train inside the per-run timeout.
 - The SPA fallback serves index.html for unknown non-/api GETs only;
   unmatched `/api/*` must stay JSON 404 and `/healthz` unauthenticated
   (tests enforce both).
