@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
+	"github.com/devalexllc/lighthouse/internal/server/outage"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -145,6 +146,28 @@ func resultToRow(r *pb.ProbeResult, now time.Time) (store.ResultRow, error) {
 		row.Error = &e
 	}
 	return row, nil
+}
+
+// toOutageResults maps genuinely inserted rows to the outage package's
+// input. UNSUPPORTED and every other non-OK status count as failures.
+func toOutageResults(rows []store.ResultRow) []outage.Result {
+	out := make([]outage.Result, len(rows))
+	for i, r := range rows {
+		var errText string
+		if r.Error != nil {
+			errText = *r.Error
+		}
+		out[i] = outage.Result{
+			ProbeID:    r.ProbeID,
+			TargetID:   r.TargetID,
+			ProbeType:  r.ProbeType,
+			Time:       r.Time,
+			OK:         r.Status == int16(pb.ProbeStatus_PROBE_STATUS_OK),
+			StatusCode: r.Status,
+			Error:      errText,
+		}
+	}
+	return out
 }
 
 // usColumn converts a wire microsecond value to a nullable column: negative

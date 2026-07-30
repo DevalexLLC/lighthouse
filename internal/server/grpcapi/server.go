@@ -18,6 +18,7 @@ import (
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/ca"
 	"github.com/devalexllc/lighthouse/internal/server/meshexpand"
+	"github.com/devalexllc/lighthouse/internal/server/outage"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 	"github.com/google/uuid"
 )
@@ -226,10 +227,36 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 		rows = append(rows, row)
 	}
 
-	if _, err := s.store.InsertResults(ctx, id.AgentID, rows); err != nil {
-		slog.Error("result insert failed", "agent", id.AgentID, "count", len(rows), "err", err)
+	// Insert + outage bookkeeping happen in one transaction: hysteresis only
+	// ever sees rows the insert genuinely added, so replayed spool batches
+	// (dedupe-skipped) can never advance a failure streak twice.
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		slog.Error("result tx begin failed", "agent", id.AgentID, "err", err)
 		// Unavailable: the agent keeps the batch spooled and retries.
 		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
+	}
+	defer tx.Rollback(ctx)
+	inserted, err := store.InsertResultsTx(ctx, tx, id.AgentID, rows)
+	if err != nil {
+		slog.Error("result insert failed", "agent", id.AgentID, "count", len(rows), "err", err)
+		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
+	}
+	transitions, err := outage.Apply(ctx, tx, id.AgentID, toOutageResults(inserted))
+	if err != nil {
+		slog.Error("outage bookkeeping failed", "agent", id.AgentID, "err", err)
+		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("result tx commit failed", "agent", id.AgentID, "err", err)
+		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
+	}
+	for _, tr := range transitions {
+		if tr.Opened {
+			slog.Warn("outage opened", "agent", id.AgentID, "probe", tr.ProbeID, "since", tr.At)
+		} else {
+			slog.Info("outage closed", "agent", id.AgentID, "probe", tr.ProbeID, "at", tr.At)
+		}
 	}
 	if rejected > 0 {
 		slog.Warn("push contained rejected results", "agent", id.AgentID,

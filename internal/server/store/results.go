@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // ResultRow is one probe_results row ready for insertion. Nil pointers map
@@ -35,13 +36,16 @@ type ResultRow struct {
 	Error *string
 }
 
-// InsertResults bulk-inserts a batch for one agent in a single statement.
-// The agent ID comes from the caller's authenticated mTLS identity, never
-// from the batch. Duplicates (at-least-once spool replay) are silently
-// dropped by the dedupe index; the returned count excludes them.
-func (s *Store) InsertResults(ctx context.Context, agentID uuid.UUID, rows []ResultRow) (int64, error) {
+// InsertResultsTx bulk-inserts a batch for one agent in a single statement
+// on the caller's transaction. The agent ID comes from the caller's
+// authenticated mTLS identity, never from the batch. Duplicates
+// (at-least-once spool replay) are silently dropped by the dedupe index;
+// the returned slice holds only the rows the insert genuinely added, so
+// downstream bookkeeping (outage hysteresis, pathwatch) can never
+// double-count a replayed result.
+func InsertResultsTx(ctx context.Context, tx pgx.Tx, agentID uuid.UUID, rows []ResultRow) ([]ResultRow, error) {
 	if len(rows) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	n := len(rows)
 	var (
@@ -65,7 +69,7 @@ func (s *Store) InsertResults(ctx context.Context, agentID uuid.UUID, rows []Res
 		errs[i] = r.Error
 	}
 
-	tag, err := s.pool.Exec(ctx, `
+	ret, err := tx.Query(ctx, `
 		INSERT INTO probe_results (time, agent_id, target_id, probe_id, probe_type, status,
 			sent, received, loss_pct, rtt_min_us, rtt_avg_us, rtt_max_us, rtt_stddev_us,
 			jitter_us, dns_us, tcp_connect_us, tls_handshake_us, ttfb_us, total_us, error)
@@ -78,13 +82,44 @@ func (s *Store) InsertResults(ctx context.Context, agentID uuid.UUID, rows []Res
 			AS u(time, target_id, probe_id, probe_type, status, sent, received, loss_pct,
 				rtt_min_us, rtt_avg_us, rtt_max_us, rtt_stddev_us, jitter_us,
 				dns_us, tcp_connect_us, tls_handshake_us, ttfb_us, total_us, error)
-		ON CONFLICT DO NOTHING`,
+		ON CONFLICT DO NOTHING
+		RETURNING probe_id, time`,
 		agentID, times, targetIDs, probeIDs, probeTypes, statuses, sents, receiveds, lossPcts,
 		rttMins, rttAvgs, rttMaxs, rttStddevs, jitters, dnss, tcps, tlss, ttfbs, tots, errs)
 	if err != nil {
-		return 0, fmt.Errorf("insert results: %w", err)
+		return nil, fmt.Errorf("insert results: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	defer ret.Close()
+
+	// Map the RETURNING set back to input rows. Postgres stores timestamptz
+	// at microsecond precision, so input times are keyed truncated.
+	insertedKeys := make(map[resultKey]struct{}, len(rows))
+	for ret.Next() {
+		var probeID uuid.UUID
+		var t time.Time
+		if err := ret.Scan(&probeID, &t); err != nil {
+			return nil, fmt.Errorf("scan inserted result: %w", err)
+		}
+		insertedKeys[resultKey{probeID, t.UTC().UnixMicro()}] = struct{}{}
+	}
+	if err := ret.Err(); err != nil {
+		return nil, fmt.Errorf("insert results: %w", err)
+	}
+
+	inserted := make([]ResultRow, 0, len(insertedKeys))
+	for _, r := range rows {
+		k := resultKey{r.ProbeID, r.Time.UTC().UnixMicro()}
+		if _, ok := insertedKeys[k]; ok {
+			inserted = append(inserted, r)
+			delete(insertedKeys, k) // in-batch duplicates count once
+		}
+	}
+	return inserted, nil
+}
+
+type resultKey struct {
+	probeID uuid.UUID
+	timeUS  int64
 }
 
 // TargetAssignedToAgent reports whether the target is currently assigned to

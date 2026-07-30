@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,6 +35,10 @@ func Connect(ctx context.Context, url string, timeout time.Duration) (*Store, er
 }
 
 func (s *Store) Close() { s.pool.Close() }
+
+// Begin starts a transaction; the ingest path inserts results and advances
+// outage/path state atomically in one.
+func (s *Store) Begin(ctx context.Context) (pgx.Tx, error) { return s.pool.Begin(ctx) }
 
 // Pool exposes the underlying pool for packages that need transactions.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
