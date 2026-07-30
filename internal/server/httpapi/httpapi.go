@@ -33,6 +33,10 @@ type DB interface {
 	PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUID, bucket, window time.Duration) ([]store.SeriesBucket, error)
 	PairSummary(ctx context.Context, srcAgents, dstTargets []uuid.UUID, window time.Duration) (*store.PairSummaryRow, error)
 	DirectionLatest(ctx context.Context, srcAgents, dstTargets []uuid.UUID, horizon time.Duration) ([]store.MatrixRow, error)
+
+	ListOutages(ctx context.Context, window time.Duration) ([]store.OutageInfo, error)
+	ListPathEvents(ctx context.Context, window time.Duration) ([]store.PathEventInfo, error)
+	CurrentPaths(ctx context.Context, srcAgents, dstTargets []uuid.UUID) ([]store.CurrentPath, error)
 }
 
 const (
@@ -69,6 +73,9 @@ func New(sdb DB, static fs.FS) http.Handler {
 	mux.Handle("GET /api/v1/matrix", a.withSession(a.handleMatrix))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}", a.withSession(a.handlePair))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}/series", a.withSession(a.handleSeries))
+	mux.Handle("GET /api/v1/outages", a.withSession(a.handleOutages))
+	mux.Handle("GET /api/v1/path-events", a.withSession(a.handlePathEvents))
+	mux.Handle("GET /api/v1/traceroute/{a}/{b}", a.withSession(a.handleTraceroute))
 
 	// Unmatched API paths are JSON 404s; the SPA fallback must never
 	// shadow the API namespace.

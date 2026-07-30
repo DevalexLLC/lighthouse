@@ -23,6 +23,7 @@ import (
 type fakeDB struct {
 	users    map[string]*store.UserInfo
 	sessions map[string]*store.SessionInfo // key: string(token_hash)
+	outages  []store.OutageInfo
 }
 
 func newFakeDB() *fakeDB {
@@ -92,6 +93,15 @@ func (f *fakeDB) PairSummary(_ context.Context, _, _ []uuid.UUID, _ time.Duratio
 	return &store.PairSummaryRow{}, nil
 }
 func (f *fakeDB) DirectionLatest(_ context.Context, _, _ []uuid.UUID, _ time.Duration) ([]store.MatrixRow, error) {
+	return nil, nil
+}
+func (f *fakeDB) ListOutages(_ context.Context, _ time.Duration) ([]store.OutageInfo, error) {
+	return f.outages, nil
+}
+func (f *fakeDB) ListPathEvents(_ context.Context, _ time.Duration) ([]store.PathEventInfo, error) {
+	return nil, nil
+}
+func (f *fakeDB) CurrentPaths(_ context.Context, _, _ []uuid.UUID) ([]store.CurrentPath, error) {
 	return nil, nil
 }
 
@@ -389,5 +399,78 @@ func TestUnknownSiteIs404(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "nowhere") {
 		t.Errorf("unknown site = %d %s, want 404 naming the site", w.Code, w.Body)
+	}
+}
+
+func TestEventsEndpoints(t *testing.T) {
+	f := newFakeDB()
+	closed := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	dst, target, ptype := "nyc", "nyc-agent", int16(1)
+	f.outages = []store.OutageInfo{
+		{ID: uuid.New(), Kind: "probe_failing", AgentHostname: "syd-1", SrcSite: "syd",
+			DstSite: &dst, TargetName: &target, ProbeType: &ptype,
+			OpenedAt: closed.Add(-time.Hour)},
+		{ID: uuid.New(), Kind: "agent_offline", AgentHostname: "lon-1", SrcSite: "lon",
+			OpenedAt: closed.Add(-2 * time.Hour), ClosedAt: &closed},
+	}
+	h := newTestAPI(t, f)
+	cookie, _ := loginAndCookie(t, h, f)
+
+	req := httptest.NewRequest("GET", "/api/v1/outages", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("outages = %d %s", w.Code, w.Body)
+	}
+	body := w.Body.String()
+	// probe_failing rows carry the mapped type name; agent_offline rows null it.
+	if !strings.Contains(body, `"probe_type":"icmp"`) || !strings.Contains(body, `"kind":"agent_offline"`) {
+		t.Errorf("outages body missing expected fields: %s", body)
+	}
+
+	// Empty results serve well-formed shapes, not nulls that break the SPA.
+	for path, key := range map[string]string{
+		"/api/v1/path-events":       `"events":[]`,
+		"/api/v1/traceroute/ok/ok2": "", // 404s below, shape untested here
+	} {
+		if key == "" {
+			continue
+		}
+		req := httptest.NewRequest("GET", path, nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), key) {
+			t.Errorf("GET %s = %d %s, want 200 containing %s", path, w.Code, w.Body, key)
+		}
+	}
+
+	// Bad window is a 400, unknown site in traceroute a 404 naming it.
+	req = httptest.NewRequest("GET", "/api/v1/outages?window=6d", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("outages bad window = %d, want 400", w.Code)
+	}
+	req = httptest.NewRequest("GET", "/api/v1/traceroute/nowhere/lon", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "nowhere") {
+		t.Errorf("traceroute unknown site = %d %s, want 404 naming it", w.Code, w.Body)
+	}
+}
+
+func TestEventsRequireSession(t *testing.T) {
+	h := newTestAPI(t, newFakeDB())
+	for _, path := range []string{"/api/v1/outages", "/api/v1/path-events", "/api/v1/traceroute/a/b"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("GET %s without session = %d, want 401", path, w.Code)
+		}
 	}
 }
