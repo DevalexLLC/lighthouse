@@ -19,6 +19,7 @@ import (
 	"github.com/devalexllc/lighthouse/internal/server/ca"
 	"github.com/devalexllc/lighthouse/internal/server/meshexpand"
 	"github.com/devalexllc/lighthouse/internal/server/outage"
+	"github.com/devalexllc/lighthouse/internal/server/pathwatch"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 	"github.com/google/uuid"
 )
@@ -247,6 +248,11 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 		slog.Error("outage bookkeeping failed", "agent", id.AgentID, "err", err)
 		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
 	}
+	changes, err := pathwatch.Apply(ctx, tx, id.AgentID, toPathRuns(inserted))
+	if err != nil {
+		slog.Error("pathwatch bookkeeping failed", "agent", id.AgentID, "err", err)
+		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
+	}
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("result tx commit failed", "agent", id.AgentID, "err", err)
 		return nil, status.Error(codes.Unavailable, "result insert failed, retry")
@@ -257,6 +263,9 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 		} else {
 			slog.Info("outage closed", "agent", id.AgentID, "probe", tr.ProbeID, "at", tr.At)
 		}
+	}
+	for _, ch := range changes {
+		slog.Warn("traceroute path changed", "agent", id.AgentID, "probe", ch.ProbeID, "event", ch.EventID)
 	}
 	if rejected > 0 {
 		slog.Warn("push contained rejected results", "agent", id.AgentID,

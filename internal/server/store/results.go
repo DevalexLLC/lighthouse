@@ -34,6 +34,18 @@ type ResultRow struct {
 	TotalUS        *int32
 
 	Error *string
+
+	// Traceroute rides the row through the inserted-filter but is not a
+	// hypertable column: hops go to traceroute_current/path_events via
+	// pathwatch, and only for rows the insert genuinely added.
+	Traceroute *TraceroutePayload
+}
+
+// TraceroutePayload is the wire TracerouteResult mapped for pathwatch.
+type TraceroutePayload struct {
+	DestReached bool
+	PathHash    []byte
+	Hops        []byte // JSON array mirroring the wire Hop messages
 }
 
 // InsertResultsTx bulk-inserts a batch for one agent in a single statement

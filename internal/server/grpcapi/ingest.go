@@ -3,6 +3,8 @@ package grpcapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +13,7 @@ import (
 
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/outage"
+	"github.com/devalexllc/lighthouse/internal/server/pathwatch"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -145,7 +148,74 @@ func resultToRow(r *pb.ProbeResult, now time.Time) (store.ResultRow, error) {
 		}
 		row.Error = &e
 	}
+	if tr := r.GetTraceroute(); tr != nil {
+		payload, err := tracePayload(tr)
+		if err != nil {
+			return row, err
+		}
+		row.Traceroute = payload
+	}
 	return row, nil
+}
+
+// maxTracerouteHops caps hop counts from the wire; the prober sends at most
+// 30, anything beyond 64 is a broken or hostile client.
+const maxTracerouteHops = 64
+
+// tracePayload maps the wire TracerouteResult to the pathwatch payload,
+// marshaling hops to the JSON shape stored in traceroute_current/path_events.
+func tracePayload(tr *pb.TracerouteResult) (*store.TraceroutePayload, error) {
+	if len(tr.GetHops()) > maxTracerouteHops {
+		return nil, fmt.Errorf("traceroute with %d hops exceeds the %d-hop limit", len(tr.GetHops()), maxTracerouteHops)
+	}
+	if tr.GetDestReached() && len(tr.GetPathHash()) != sha256.Size {
+		return nil, fmt.Errorf("traceroute path_hash is %d bytes, want %d", len(tr.GetPathHash()), sha256.Size)
+	}
+	type hopJSON struct {
+		TTL   uint32   `json:"ttl"`
+		Addrs []string `json:"addrs"`
+		RTTUS []int64  `json:"rtt_us"`
+	}
+	hops := make([]hopJSON, len(tr.GetHops()))
+	for i, h := range tr.GetHops() {
+		addrs := h.GetAddrs()
+		if addrs == nil {
+			addrs = []string{}
+		}
+		rtts := h.GetRttUs()
+		if rtts == nil {
+			rtts = []int64{}
+		}
+		hops[i] = hopJSON{TTL: h.GetTtl(), Addrs: addrs, RTTUS: rtts}
+	}
+	raw, err := json.Marshal(hops)
+	if err != nil {
+		return nil, fmt.Errorf("marshal traceroute hops: %w", err)
+	}
+	return &store.TraceroutePayload{
+		DestReached: tr.GetDestReached(),
+		PathHash:    tr.GetPathHash(),
+		Hops:        raw,
+	}, nil
+}
+
+// toPathRuns extracts the traceroute payloads from genuinely inserted rows.
+func toPathRuns(rows []store.ResultRow) []pathwatch.Run {
+	var runs []pathwatch.Run
+	for _, r := range rows {
+		if r.Traceroute == nil {
+			continue
+		}
+		runs = append(runs, pathwatch.Run{
+			ProbeID:     r.ProbeID,
+			TargetID:    r.TargetID,
+			Time:        r.Time,
+			DestReached: r.Traceroute.DestReached,
+			PathHash:    r.Traceroute.PathHash,
+			Hops:        r.Traceroute.Hops,
+		})
+	}
+	return runs
 }
 
 // toOutageResults maps genuinely inserted rows to the outage package's

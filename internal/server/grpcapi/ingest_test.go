@@ -1,6 +1,7 @@
 package grpcapi
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +117,40 @@ func TestUsColumnClamps(t *testing.T) {
 	}
 	if v := usColumn(1 << 40); v == nil || *v != 1<<31-1 {
 		t.Errorf("overflow must clamp to max int32, got %v", v)
+	}
+}
+
+func TestResultToRowTraceroute(t *testing.T) {
+	now := time.Now()
+	r := validResult(now)
+	r.Type = pb.ProbeType_PROBE_TYPE_TRACEROUTE
+	r.Traceroute = &pb.TracerouteResult{
+		Hops: []*pb.Hop{
+			{Ttl: 1, Addrs: []string{"10.0.0.1"}, RttUs: []int64{311}},
+			{Ttl: 2}, // silent hop
+		},
+		DestReached: true,
+		PathHash:    bytes.Repeat([]byte{0xab}, 32),
+	}
+	row, err := resultToRow(r, now)
+	if err != nil {
+		t.Fatalf("resultToRow: %v", err)
+	}
+	if row.Traceroute == nil || !row.Traceroute.DestReached {
+		t.Fatalf("traceroute payload missing: %+v", row.Traceroute)
+	}
+	want := `[{"ttl":1,"addrs":["10.0.0.1"],"rtt_us":[311]},{"ttl":2,"addrs":[],"rtt_us":[]}]`
+	if string(row.Traceroute.Hops) != want {
+		t.Errorf("hops json = %s, want %s", row.Traceroute.Hops, want)
+	}
+}
+
+func TestResultToRowTracerouteRejectsBadHash(t *testing.T) {
+	now := time.Now()
+	r := validResult(now)
+	r.Type = pb.ProbeType_PROBE_TYPE_TRACEROUTE
+	r.Traceroute = &pb.TracerouteResult{DestReached: true, PathHash: []byte{1, 2, 3}}
+	if _, err := resultToRow(r, now); err == nil {
+		t.Error("complete traceroute with short path_hash must be rejected")
 	}
 }
