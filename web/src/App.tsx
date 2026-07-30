@@ -3,17 +3,26 @@ import { ApiError, apiGet, apiPost, setCsrfToken } from './api'
 import type { LoginResponse, User } from './types'
 import Login from './views/Login'
 import Matrix from './views/Matrix'
+import Outages from './views/Outages'
 import PairDetail from './views/PairDetail'
+import Paths from './views/Paths'
 
-// Hash routing: '#/' → matrix, '#/pair/{a}/{b}' → pair detail. Login is an
-// auth-gate state, not a route, so deep links survive a login round-trip.
-type Route = { view: 'matrix' } | { view: 'pair'; a: string; b: string }
+// Hash routing: '#/' → matrix, '#/pair/{a}/{b}' → pair detail, '#/outages'
+// and '#/paths' → the event logs. Login is an auth-gate state, not a route,
+// so deep links survive a login round-trip.
+type Route =
+  | { view: 'matrix' }
+  | { view: 'pair'; a: string; b: string }
+  | { view: 'outages' }
+  | { view: 'paths' }
 
 function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/')
   if (parts[0] === 'pair' && parts[1] && parts[2]) {
     return { view: 'pair', a: decodeURIComponent(parts[1]), b: decodeURIComponent(parts[2]) }
   }
+  if (parts[0] === 'outages') return { view: 'outages' }
+  if (parts[0] === 'paths') return { view: 'paths' }
   return { view: 'matrix' }
 }
 
@@ -73,6 +82,17 @@ export default function App() {
           <span className="beacon" aria-hidden="true" />
           Lighthouse
         </a>
+        <nav className="topnav" aria-label="Views">
+          <a href="#/" className={route.view === 'matrix' || route.view === 'pair' ? 'active' : ''}>
+            Matrix
+          </a>
+          <a href="#/outages" className={route.view === 'outages' ? 'active' : ''}>
+            Outages
+          </a>
+          <a href="#/paths" className={route.view === 'paths' ? 'active' : ''}>
+            Paths
+          </a>
+        </nav>
         <div className="topbar-right">
           <span className="username">
             {user.username} <span className="role">· {user.role}</span>
@@ -85,8 +105,12 @@ export default function App() {
       <main>
         {route.view === 'matrix' ? (
           <Matrix onAuthError={onAuthError} />
-        ) : (
+        ) : route.view === 'pair' ? (
           <PairDetail a={route.a} b={route.b} onAuthError={onAuthError} />
+        ) : route.view === 'outages' ? (
+          <Outages onAuthError={onAuthError} />
+        ) : (
+          <Paths onAuthError={onAuthError} />
         )}
       </main>
     </div>

@@ -2,8 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import type uPlot from 'uplot'
 import { apiGet } from '../api'
 import Chart from '../components/Chart'
-import { fmtLatency, fmtTime, latencyAxisLabel } from '../format'
-import type { DirectionSummary, PairResponse, SeriesPoint, SeriesResponse, Window } from '../types'
+import { fmtAgo, fmtLatency, fmtTime, latencyAxisLabel } from '../format'
+import type {
+  CurrentPath,
+  DirectionSummary,
+  PairResponse,
+  SeriesPoint,
+  SeriesResponse,
+  TracerouteResponse,
+  Window,
+} from '../types'
 import { WINDOWS } from '../types'
 
 const POLL_MS = 60_000
@@ -83,6 +91,46 @@ function DirectionCard({
   )
 }
 
+// PathList renders one direction's current traceroute paths as monospace
+// hop chains (a site can field several agents, so this is a list).
+function PathList({ title, dir, paths }: { title: string; dir: 'a' | 'b'; paths: CurrentPath[] }) {
+  return (
+    <div className="path-current">
+      <h4>
+        <span className={'swatch series-' + dir} /> {title}
+      </h4>
+      {paths.length === 0 ? (
+        <p className="muted">No traceroute yet. Traces run on a slower cadence.</p>
+      ) : (
+        paths.map((p) => (
+          <div key={p.agent} className="path-chain">
+            <div className="path-meta">
+              <span className="mono">{p.agent}</span>
+              <span className="hash-chip" title={p.path_hash}>
+                {p.path_hash.slice(0, 12)}
+              </span>
+              <span className="hint" title={fmtTime(p.updated_at)}>
+                {fmtAgo(p.updated_at)}
+                {p.dest_reached ? '' : ' · incomplete'}
+              </span>
+            </div>
+            <ol className="hops mono">
+              {p.hops.map((h) => (
+                <li key={h.ttl}>
+                  {h.addrs.length === 0 ? '*' : h.addrs.join(', ')}
+                  {h.rtt_us.length > 0 && (
+                    <span className="hint"> {fmtLatency(Math.min(...h.rtt_us))}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
 export default function PairDetail({
   a,
   b,
@@ -96,6 +144,7 @@ export default function PairDetail({
   const [metric, setMetric] = useState<Metric>('latency')
   const [pair, setPair] = useState<PairResponse | null>(null)
   const [series, setSeries] = useState<SeriesResponse | null>(null)
+  const [paths, setPaths] = useState<TracerouteResponse | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -106,11 +155,15 @@ export default function PairDetail({
         apiGet<SeriesResponse>(
           `/api/v1/pairs/${encodeURIComponent(a)}/${encodeURIComponent(b)}/series?metric=${metric}&window=${win}`,
         ),
+        apiGet<TracerouteResponse>(
+          `/api/v1/traceroute/${encodeURIComponent(a)}/${encodeURIComponent(b)}`,
+        ),
       ])
-        .then(([p, s]) => {
+        .then(([p, s, tr]) => {
           if (!cancelled) {
             setPair(p)
             setSeries(s)
+            setPaths(tr)
             setError('')
           }
         })
@@ -213,6 +266,17 @@ export default function PairDetail({
       <div className="pair-cards">
         <DirectionCard title={`${a} → ${b}`} s={pair.a_to_b} dir="a" />
         <DirectionCard title={`${b} → ${a}`} s={pair.b_to_a} dir="b" />
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <span className="eyebrow">Current path</span>
+          <span className="hint">latest complete traceroute per direction</span>
+        </div>
+        <div className="path-pair">
+          <PathList title={`${a} → ${b}`} dir="a" paths={paths?.a_to_b.paths ?? []} />
+          <PathList title={`${b} → ${a}`} dir="b" paths={paths?.b_to_a.paths ?? []} />
+        </div>
       </div>
 
       {directions.map(({ key, dir, chart, title }) => {

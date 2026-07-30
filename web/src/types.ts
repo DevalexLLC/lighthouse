@@ -101,5 +101,62 @@ export interface SeriesResponse {
   b_to_a: { points: SeriesPoint[] }
 }
 
+export interface OutageEvent {
+  id: string
+  kind: 'probe_failing' | 'agent_offline'
+  agent: string
+  src_site: string
+  dst_site: string | null
+  target: string | null
+  probe_type: string | null
+  opened_at: string
+  closed_at: string | null
+  error: string | null
+}
+
+export interface OutagesResponse {
+  window: string
+  outages: OutageEvent[]
+}
+
+export interface Hop {
+  ttl: number
+  addrs: string[]
+  rtt_us: number[]
+}
+
+export interface PathEvent {
+  id: string
+  time: string
+  agent: string
+  src_site: string
+  dst_site: string | null
+  target: string | null
+  old_path_hash: string
+  new_path_hash: string
+  old_hops: Hop[]
+  new_hops: Hop[]
+}
+
+export interface PathEventsResponse {
+  window: string
+  events: PathEvent[]
+}
+
+export interface CurrentPath {
+  agent: string
+  updated_at: string
+  dest_reached: boolean
+  path_hash: string
+  hops: Hop[]
+}
+
+export interface TracerouteResponse {
+  a: string
+  b: string
+  a_to_b: { paths: CurrentPath[] }
+  b_to_a: { paths: CurrentPath[] }
+}
+
 export const WINDOWS = ['24h', '7d', '30d', '90d', '365d'] as const
 export type Window = (typeof WINDOWS)[number]
