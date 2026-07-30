@@ -1,0 +1,389 @@
+/* Lighthouse dashboard. Palette follows the project data-viz reference:
+   categorical slot 1/2 for the two probe directions, fixed status colors
+   (never reused as series), light/dark stepped per surface. */
+
+:root {
+  color-scheme: light dark;
+
+  --surface: #fcfcfb;
+  --surface-raised: #f4f3f0;
+  --border: #e3e2de;
+  --text: #0b0b0b;
+  --text-secondary: #52514e;
+  --accent: #2a78d6;
+
+  --series-a: #2a78d6; /* A→B, categorical slot 1 (blue) */
+  --series-b: #eb6834; /* B→A, categorical slot 2 (orange) */
+
+  --status-ok: #0ca30c;
+  --status-degraded: #fab219;
+  --status-down: #d03b3b;
+  --status-stale: #9a9994;
+
+  --status-ok-bg: #0ca30c22;
+  --status-degraded-bg: #fab21926;
+  --status-down-bg: #d03b3b22;
+  --status-stale-bg: #9a999422;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1a1a19;
+    --surface-raised: #242422;
+    --border: #333330;
+    --text: #ffffff;
+    --text-secondary: #c3c2b7;
+    --accent: #3987e5;
+
+    --series-a: #3987e5;
+    --series-b: #d95926;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.app main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 3rem;
+}
+
+/* ---- top bar ---- */
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.topbar-right {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.username {
+  color: var(--text-secondary);
+}
+
+button.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
+
+button.linklike:hover {
+  text-decoration: underline;
+}
+
+/* ---- login ---- */
+
+.login-wrap {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  width: min(320px, 90vw);
+  padding: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.login-card h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.login-card input {
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.login-card button[type='submit'] {
+  margin-top: 0.4rem;
+  padding: 0.55rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.login-card button[type='submit']:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ---- shared ---- */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.section-head h2 a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.muted {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.error {
+  color: var(--status-down);
+}
+
+.scroll-x {
+  overflow-x: auto;
+}
+
+/* ---- matrix ---- */
+
+table.matrix {
+  border-collapse: separate;
+  border-spacing: 2px; /* the 2px surface gap between fills */
+}
+
+table.matrix th {
+  padding: 0.45rem 0.7rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+table.matrix td {
+  min-width: 7.5rem;
+  border-radius: 4px;
+  text-align: center;
+}
+
+table.matrix td.diag {
+  background: var(--surface-raised);
+}
+
+table.matrix td.empty {
+  color: var(--text-secondary);
+}
+
+table.matrix td.cell a {
+  display: block;
+  padding: 0.55rem 0.7rem;
+  color: var(--text);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+table.matrix td.cell .loss {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+td.status-ok {
+  background: var(--status-ok-bg);
+  box-shadow: inset 3px 0 0 var(--status-ok);
+}
+td.status-degraded {
+  background: var(--status-degraded-bg);
+  box-shadow: inset 3px 0 0 var(--status-degraded);
+}
+td.status-down {
+  background: var(--status-down-bg);
+  box-shadow: inset 3px 0 0 var(--status-down);
+}
+td.status-stale {
+  background: var(--status-stale-bg);
+  box-shadow: inset 3px 0 0 var(--status-stale);
+}
+
+.legend {
+  display: flex;
+  gap: 1.1rem;
+  margin-top: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.swatch.status-ok { background: var(--status-ok); }
+.swatch.status-degraded { background: var(--status-degraded); }
+.swatch.status-down { background: var(--status-down); }
+.swatch.status-stale { background: var(--status-stale); }
+.swatch.series-a { background: var(--series-a); }
+.swatch.series-b { background: var(--series-b); }
+
+/* ---- pair detail ---- */
+
+.controls {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.control-group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.control-group button {
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border: none;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.control-group button + button {
+  border-left: 1px solid var(--border);
+}
+
+.control-group button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pair-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.4rem;
+}
+
+.pair-card {
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.pair-card h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+
+.pair-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.pair-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pair-card dt {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.pair-card dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-border-ok { border-left: 4px solid var(--status-ok); }
+.status-border-degraded { border-left: 4px solid var(--status-degraded); }
+.status-border-down { border-left: 4px solid var(--status-down); }
+.status-border-stale { border-left: 4px solid var(--status-stale); }
+
+.status-text-ok { color: var(--status-ok); font-weight: 600; }
+.status-text-degraded { color: var(--status-degraded); font-weight: 600; }
+.status-text-down { color: var(--status-down); font-weight: 600; }
+.status-text-stale { color: var(--status-stale); font-weight: 600; }
+
+.chart-block {
+  margin-bottom: 1.6rem;
+}
+
+.chart-block h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+}
+
+.chart-host {
+  width: 100%;
+}
+
+/* uPlot legend/text follows the app theme */
+.u-legend {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
