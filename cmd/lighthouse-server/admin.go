@@ -18,12 +18,14 @@ import (
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
-// probeTypeNames maps CLI names to wire enum values. dns/icmp/traceroute
-// join in M4.
+// probeTypeNames maps CLI names to wire enum values.
 var probeTypeNames = map[string]pb.ProbeType{
-	"tcp":  pb.ProbeType_PROBE_TYPE_TCP,
-	"tls":  pb.ProbeType_PROBE_TYPE_TLS,
-	"http": pb.ProbeType_PROBE_TYPE_HTTP,
+	"icmp":       pb.ProbeType_PROBE_TYPE_ICMP,
+	"tcp":        pb.ProbeType_PROBE_TYPE_TCP,
+	"tls":        pb.ProbeType_PROBE_TYPE_TLS,
+	"http":       pb.ProbeType_PROBE_TYPE_HTTP,
+	"dns":        pb.ProbeType_PROBE_TYPE_DNS,
+	"traceroute": pb.ProbeType_PROBE_TYPE_TRACEROUTE,
 }
 
 func parseProbeType(name string) (pb.ProbeType, error) {
@@ -36,6 +38,27 @@ func parseProbeType(name string) (pb.ProbeType, error) {
 		return 0, fmt.Errorf("unknown probe type %q (accepted: %s)", name, strings.Join(accepted, ", "))
 	}
 	return t, nil
+}
+
+// validateTrain rejects train settings that cannot fit inside the per-run
+// timeout: the agent budgets the whole train within spec.timeout, so a
+// train longer than the timeout would silently lose its tail.
+func validateTrain(count int, spacing, timeout time.Duration) error {
+	if count < 0 || spacing < 0 {
+		return fmt.Errorf("--train-count and --train-spacing must not be negative")
+	}
+	if count == 0 {
+		return nil
+	}
+	effSpacing := spacing
+	if effSpacing == 0 {
+		effSpacing = 200 * time.Millisecond // prober default
+	}
+	if trainLen := time.Duration(count) * effSpacing; trainLen >= timeout {
+		return fmt.Errorf("train of %d × %s (%s) must fit inside --timeout (%s)",
+			count, effSpacing, trainLen, timeout)
+	}
+	return nil
 }
 
 func probeTypeName(t int16) string {
@@ -176,11 +199,13 @@ func cmdProbe(args []string) error {
 		site := fs.String("site", "", "site whose agents run the probe (with --target)")
 		target := fs.String("target", "", "target name to probe (with --site)")
 		mesh := fs.String("mesh", "", "mesh group to expand over ordered site pairs (instead of --site/--target)")
-		typeName := fs.String("type", "", "probe type: tcp, tls, http")
+		typeName := fs.String("type", "", "probe type: icmp, tcp, tls, http, dns, traceroute")
 		interval := fs.Duration("interval", 30*time.Second, "run interval")
 		timeout := fs.Duration("timeout", 5*time.Second, "per-run timeout")
+		trainCount := fs.Int("train-count", 0, "packets per run for train probes (icmp); 0 = prober default (10)")
+		trainSpacing := fs.Duration("train-spacing", 0, "gap between train packets; 0 = prober default (200ms)")
 		params := paramsFlag{}
-		fs.Var(params, "param", "type-specific key=value (repeatable), e.g. http.expect_status=200, port=5432")
+		fs.Var(params, "param", "type-specific key=value (repeatable), e.g. http.expect_status=200, dns.qname=example.org, port=5432")
 		cfg, err := loadConfig(fs, args[1:])
 		if err != nil {
 			return err
@@ -204,6 +229,9 @@ func cmdProbe(args []string) error {
 		if *timeout >= *interval {
 			return fmt.Errorf("--timeout (%s) must be shorter than --interval (%s)", *timeout, *interval)
 		}
+		if err := validateTrain(*trainCount, *trainSpacing, *timeout); err != nil {
+			return err
+		}
 
 		st, ctx, cancel, err := adminStore(cfg)
 		if err != nil {
@@ -212,10 +240,12 @@ func cmdProbe(args []string) error {
 		defer cancel()
 		defer st.Close()
 		ps := store.ProbeSettings{
-			ProbeType: int16(probeType),
-			Interval:  *interval,
-			Timeout:   *timeout,
-			Params:    params,
+			ProbeType:    int16(probeType),
+			Interval:     *interval,
+			Timeout:      *timeout,
+			TrainCount:   int32(*trainCount),
+			TrainSpacing: *trainSpacing,
+			Params:       params,
 		}
 		var id uuid.UUID
 		if meshMode {
