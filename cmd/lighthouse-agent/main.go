@@ -47,7 +47,7 @@ func main() {
 	case "enroll":
 		err = cmdEnroll(os.Args[2:])
 	case "selfcheck":
-		err = fmt.Errorf("selfcheck: not implemented until the probe milestone")
+		err = cmdSelfcheck(os.Args[2:])
 	case "version", "--version":
 		fmt.Println("lighthouse-agent", version.String())
 		return
@@ -88,6 +88,36 @@ func cmdEnroll(args []string) error {
 		Fingerprint:  *fingerprint,
 		ProbeAddress: *probeAddr,
 	})
+}
+
+// cmdSelfcheck verifies the capabilities the probers need (ICMP socket
+// modes, traceroute's raw socket, spool writability) and exits non-zero if
+// any fatal check fails. Config load itself is the first check: a bad file
+// fails before anything else runs.
+func cmdSelfcheck(args []string) error {
+	fs := flag.NewFlagSet("selfcheck", flag.ExitOnError)
+	cfg, err := loadConfig(fs, args)
+	if err != nil {
+		fmt.Printf("%-18s %-5s %v\n", "config", "FAIL", err)
+		return fmt.Errorf("selfcheck failed")
+	}
+	fmt.Printf("%-18s %-5s %s\n", "config", "ok", fs.Lookup("config").Value.String())
+
+	failed := false
+	for _, c := range probes.SelfCheck(cfg.StateDir) {
+		status := "ok"
+		if !c.OK {
+			status = "FAIL"
+			if c.Fatal {
+				failed = true
+			}
+		}
+		fmt.Printf("%-18s %-5s %s\n", c.Name, status, c.Detail)
+	}
+	if failed {
+		return fmt.Errorf("selfcheck failed")
+	}
+	return nil
 }
 
 func cmdRun(args []string) error {
