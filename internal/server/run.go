@@ -23,6 +23,7 @@ import (
 	"github.com/devalexllc/lighthouse/internal/server/grpcapi"
 	"github.com/devalexllc/lighthouse/internal/server/httpapi"
 	"github.com/devalexllc/lighthouse/internal/server/migrate"
+	"github.com/devalexllc/lighthouse/internal/server/outage"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 	"github.com/devalexllc/lighthouse/web"
 )
@@ -62,6 +63,10 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 
 	api := grpcapi.New(st, authority)
+
+	// Silence detection: agents that stop producing results AND stop
+	// touching last_seen_at get a single agent_offline event.
+	go outage.Sweep(ctx, st.Pool(), outage.SweepConfig{})
 
 	grpcTLS := &tls.Config{
 		MinVersion:   tls.VersionTLS12,
