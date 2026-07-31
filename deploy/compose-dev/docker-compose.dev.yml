@@ -2,7 +2,8 @@
 # (use `make up`; never bring up the base file alone in a dev environment).
 #
 # Adds: image builds from source, dev TLS certgen, join-token bootstrap, and
-# three fake site agents (nyc, lon, syd) meshed through the real proxy path.
+# six fake site agents (nyc, lon, syd, va, co, tx) meshed through the real
+# proxy path.
 # Optional: `--profile netem` degrades agent-syd's link for realistic charts.
 
 services:
@@ -96,6 +97,45 @@ services:
       - agent-syd-state:/var/lib/lighthouse-agent
     depends_on: [proxy, bootstrap]
 
+  agent-va:
+    build: *agent-build
+    image: lighthouse-agent:dev
+    restart: unless-stopped
+    cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container
+    environment:
+      LIGHTHOUSE_SITE: va
+    volumes:
+      - ../compose-dev/agent.dev.yaml:/etc/lighthouse/agent.yaml:ro
+      - tokens:/bootstrap:ro
+      - agent-va-state:/var/lib/lighthouse-agent
+    depends_on: [proxy, bootstrap]
+
+  agent-co:
+    build: *agent-build
+    image: lighthouse-agent:dev
+    restart: unless-stopped
+    cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container
+    environment:
+      LIGHTHOUSE_SITE: co
+    volumes:
+      - ../compose-dev/agent.dev.yaml:/etc/lighthouse/agent.yaml:ro
+      - tokens:/bootstrap:ro
+      - agent-co-state:/var/lib/lighthouse-agent
+    depends_on: [proxy, bootstrap]
+
+  agent-tx:
+    build: *agent-build
+    image: lighthouse-agent:dev
+    restart: unless-stopped
+    cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container
+    environment:
+      LIGHTHOUSE_SITE: tx
+    volumes:
+      - ../compose-dev/agent.dev.yaml:/etc/lighthouse/agent.yaml:ro
+      - tokens:/bootstrap:ro
+      - agent-tx-state:/var/lib/lighthouse-agent
+    depends_on: [proxy, bootstrap]
+
   # `docker compose --profile netem up -d` degrades agent-syd's link so charts
   # show realistic latency/jitter/loss. Dev-only; fetches iproute2 at start.
   netem:
@@ -114,3 +154,6 @@ volumes:
   agent-nyc-state:
   agent-lon-state:
   agent-syd-state:
+  agent-va-state:
+  agent-co-state:
+  agent-tx-state:

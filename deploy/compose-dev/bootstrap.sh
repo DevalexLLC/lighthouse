@@ -13,7 +13,7 @@ until [ -s /var/lib/lighthouse-server/ca/ca.crt ]; do
 done
 cp /var/lib/lighthouse-server/ca/ca.crt /bootstrap/ca.crt
 
-for site in nyc lon syd; do
+for site in nyc lon syd va co tx; do
     f="/bootstrap/${site}.token"
     if [ -s "$f" ]; then
         echo "bootstrap: token for $site already minted"
@@ -50,12 +50,12 @@ if ! printf '%s\n' "$probes" | grep -qE "http +lon -> dashboard "; then
         --param http.insecure_skip_verify=true --param http.expect_status=200
 fi
 
-# Full mesh across all three fake sites. The TCP mesh probes port 9
+# Full mesh across all six fake sites. The TCP mesh probes port 9
 # (discard) — peers run no listener there, so those cells stay
 # CONN_REFUSED, deliberately keeping a mixed-health board next to the
 # green ICMP mesh.
 lighthouse-server mesh create --config "$CONFIG" --name core
-for site in nyc lon syd; do
+for site in nyc lon syd va co tx; do
     lighthouse-server mesh add --config "$CONFIG" --name core --site "$site"
 done
 if ! printf '%s\n' "$probes" | grep -qE "tcp +mesh:core "; then
@@ -83,6 +83,16 @@ if ! printf '%s\n' "$probes" | grep -qE "dns +nyc -> resolver "; then
         --site nyc --target resolver --type dns --interval 15s --timeout 5s \
         --param dns.qname=proxy --param dns.qtype=A
 fi
+
+# Map coordinates + display names so the Sightlines map is populated out of
+# the box. site set is a plain update — reruns converge.
+echo "bootstrap: seeding site coordinates"
+lighthouse-server site set --config "$CONFIG" --name nyc --lat 40.7128 --lon -74.0060 --display-name "New York"
+lighthouse-server site set --config "$CONFIG" --name lon --lat 51.5074 --lon -0.1278 --display-name "London"
+lighthouse-server site set --config "$CONFIG" --name syd --lat -33.8688 --lon 151.2093 --display-name "Sydney"
+lighthouse-server site set --config "$CONFIG" --name va --lat 39.0438 --lon -77.4874 --display-name "Virginia"
+lighthouse-server site set --config "$CONFIG" --name co --lat 39.7392 --lon -104.9903 --display-name "Colorado"
+lighthouse-server site set --config "$CONFIG" --name tx --lat 32.7767 --lon -96.7970 --display-name "Texas"
 
 # Dev-only dashboard login (admin / lighthouse-dev). Piped stdin exercises
 # user add's non-interactive mode; a rerun hits the unique username and is
