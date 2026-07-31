@@ -4,7 +4,8 @@
 --
 -- Sums and counts re-sum, min/max re-fold, and the UddSketch percentile
 -- state rolls up losslessly via rollup() — that rollup-ability is why
--- percentile_agg was chosen over exact percentiles.
+-- percentile_agg was chosen over exact percentiles. latency_source stays a
+-- group key so the hourly timing-family partition survives the rollup.
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS probe_results_daily
 WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -13,6 +14,7 @@ SELECT
     agent_id,
     target_id,
     probe_type,
+    latency_source,
     sum(samples)       AS samples,
     sum(ok_samples)    AS ok_samples,
     sum(sent)          AS sent,
@@ -31,5 +33,5 @@ SELECT
     sum(tls_sum_us)    AS tls_sum_us,
     sum(tls_count)     AS tls_count
 FROM probe_results_hourly
-GROUP BY 1, agent_id, target_id, probe_type
+GROUP BY 1, agent_id, target_id, probe_type, latency_source
 WITH NO DATA;

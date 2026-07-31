@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/auth"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
@@ -26,10 +27,13 @@ type fakeDB struct {
 	outages   []store.OutageInfo
 	endpoints map[string]*store.SiteEndpoints
 
-	pairSummary   *store.PairSummaryRow
-	pairSeries    []store.SeriesBucket
-	latencySource string
-	lastSource    store.Source // source passed to the last PairSeries/PairSummary call
+	pairSummary          *store.PairSummaryRow
+	pairSeries           []store.SeriesBucket
+	latencySource        string
+	latencySources       map[uuid.UUID]string
+	directionLatest      []store.MatrixRow
+	passedLatencySources []string
+	lastSource           store.Source // source passed to the last PairSeries/PairSummary call
 }
 
 func newFakeDB() *fakeDB {
@@ -92,8 +96,9 @@ func (f *fakeDB) ExpectedPairs(_ context.Context) ([]store.SitePair, error) { re
 func (f *fakeDB) SiteEndpoints(_ context.Context, name string) (*store.SiteEndpoints, error) {
 	return f.endpoints[name], nil
 }
-func (f *fakeDB) PairSeries(_ context.Context, _, _ []uuid.UUID, _, _ time.Duration, source store.Source) ([]store.SeriesBucket, error) {
+func (f *fakeDB) PairSeries(_ context.Context, _, _ []uuid.UUID, _, _ time.Duration, source store.Source, latencySource string) ([]store.SeriesBucket, error) {
 	f.lastSource = source
+	f.passedLatencySources = append(f.passedLatencySources, latencySource)
 	return f.pairSeries, nil
 }
 func (f *fakeDB) PairSummary(_ context.Context, _, _ []uuid.UUID, _ time.Duration, source store.Source) (*store.PairSummaryRow, error) {
@@ -103,11 +108,14 @@ func (f *fakeDB) PairSummary(_ context.Context, _, _ []uuid.UUID, _ time.Duratio
 	}
 	return &store.PairSummaryRow{}, nil
 }
-func (f *fakeDB) PairLatencySource(_ context.Context, _, _ []uuid.UUID) (string, error) {
+func (f *fakeDB) PairLatencySource(_ context.Context, srcAgents, _ []uuid.UUID, _ time.Duration, _ store.Source) (string, error) {
+	if len(srcAgents) > 0 && f.latencySources != nil {
+		return f.latencySources[srcAgents[0]], nil
+	}
 	return f.latencySource, nil
 }
 func (f *fakeDB) DirectionLatest(_ context.Context, _, _ []uuid.UUID, _ time.Duration) ([]store.MatrixRow, error) {
-	return nil, nil
+	return f.directionLatest, nil
 }
 func (f *fakeDB) ListOutages(_ context.Context, _ time.Duration) ([]store.OutageInfo, error) {
 	return f.outages, nil
@@ -150,7 +158,7 @@ func TestLoginSuccess(t *testing.T) {
 		t.Fatalf("login = %d, want 200: %s", w.Code, w.Body)
 	}
 	var res struct {
-		User struct{ Username, Role string }
+		User      struct{ Username, Role string }
 		CSRFToken string `json:"csrf_token"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
@@ -407,16 +415,25 @@ func TestBadWindowAndMetric(t *testing.T) {
 // raw windows omit the percentile keys entirely (omitempty, not zero).
 func TestPairPercentilesAndSource(t *testing.T) {
 	f := newFakeDB()
+	nycAgent, lonAgent := uuid.New(), uuid.New()
 	f.endpoints = map[string]*store.SiteEndpoints{
-		"nyc": {SiteInfo: store.SiteInfo{Name: "nyc"}},
-		"lon": {SiteInfo: store.SiteInfo{Name: "lon"}},
+		"nyc": {SiteInfo: store.SiteInfo{Name: "nyc"}, AgentIDs: []uuid.UUID{nycAgent}},
+		"lon": {SiteInfo: store.SiteInfo{Name: "lon"}, AgentIDs: []uuid.UUID{lonAgent}},
 	}
+	f.latencySources = map[uuid.UUID]string{nycAgent: "rtt", lonAgent: "tcp_connect"}
 	fv := func(v float64) *float64 { return &v }
 	f.pairSummary = &store.PairSummaryRow{
 		AvgUS: fv(1500), P50US: fv(1400), P95US: fv(2900), P99US: fv(4100),
 		JitterAvgUS: fv(120), TCPConnectAvgUS: fv(800), TLSHandshakeAvgUS: fv(2100),
 		LatencySource: "rtt", Samples: 42,
 	}
+	checkLoss := float32(0)
+	f.directionLatest = []store.MatrixRow{{
+		ProbeType: int16(pb.ProbeType_PROBE_TYPE_ICMP),
+		Status: int16(pb.ProbeStatus_PROBE_STATUS_OK),
+		Time: time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC),
+		LatencyUS: new(int64(1200)), LatencySource: "rtt", LossPct: &checkLoss,
+	}}
 	f.pairSeries = []store.SeriesBucket{
 		{Bucket: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), AvgUS: fv(1500),
 			P50US: fv(1400), P95US: fv(2900), P99US: fv(4100), Samples: 12},
@@ -448,6 +465,11 @@ func TestPairPercentilesAndSource(t *testing.T) {
 	if f.lastSource != store.SourceHourly {
 		t.Errorf("PairSummary called with source %q, want hourly", f.lastSource)
 	}
+	checks := pair["a_to_b"].(map[string]any)["checks"].([]any)
+	if len(checks) != 1 || checks[0].(map[string]any)["type"] != "icmp" ||
+		checks[0].(map[string]any)["latency_source"] != "rtt" {
+		t.Errorf("pair checks = %#v, want latest ICMP detail", checks)
+	}
 	lat := pair["a_to_b"].(map[string]any)["latency"].(map[string]any)
 	for key, want := range map[string]float64{"p50_us": 1400, "p95_us": 2900, "p99_us": 4100} {
 		if lat[key] != want {
@@ -464,6 +486,20 @@ func TestPairPercentilesAndSource(t *testing.T) {
 	}
 	if f.lastSource != store.SourceDaily {
 		t.Errorf("PairSeries called with source %q, want daily", f.lastSource)
+	}
+	if got := series["latency_source"]; got != "rtt" {
+		t.Errorf("compat latency_source = %v, want a→b source rtt", got)
+	}
+	if got := series["a_to_b"].(map[string]any)["latency_source"]; got != "rtt" {
+		t.Errorf("a→b latency_source = %v, want rtt", got)
+	}
+	if got := series["b_to_a"].(map[string]any)["latency_source"]; got != "tcp_connect" {
+		t.Errorf("b→a latency_source = %v, want tcp_connect", got)
+	}
+	if len(f.passedLatencySources) < 2 ||
+		f.passedLatencySources[len(f.passedLatencySources)-2] != "rtt" ||
+		f.passedLatencySources[len(f.passedLatencySources)-1] != "tcp_connect" {
+		t.Errorf("PairSeries latency sources = %v, want [... rtt tcp_connect]", f.passedLatencySources)
 	}
 	pt := series["a_to_b"].(map[string]any)["points"].([]any)[0].(map[string]any)
 	if pt["p95_us"] != 2900.0 {

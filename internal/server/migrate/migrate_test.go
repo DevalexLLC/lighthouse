@@ -66,3 +66,29 @@ func stripLineComments(sql string) string {
 	}
 	return b.String()
 }
+
+func TestLatencyAggregatesKeepTimingFamiliesHonest(t *testing.T) {
+	hourly, err := migrations.ReadFile("sql/0006_m5_hourly_cagg.notx.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(hourly)
+	for _, want := range []string{
+		"latency_source",
+		"CASE WHEN status = 1 THEN COALESCE",
+		"FILTER (WHERE status = 1)",
+		"GROUP BY bucket, agent_id, target_id, probe_type, latency_source",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("hourly aggregate missing %q", want)
+		}
+	}
+
+	daily, err := migrations.ReadFile("sql/0007_m5_daily_cagg.notx.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(daily), "probe_type, latency_source") {
+		t.Error("daily aggregate does not preserve the hourly latency source partition")
+	}
+}

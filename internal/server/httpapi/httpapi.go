@@ -30,9 +30,9 @@ type DB interface {
 	MatrixLatest(ctx context.Context, horizon time.Duration) ([]store.MatrixRow, error)
 	ExpectedPairs(ctx context.Context) ([]store.SitePair, error)
 	SiteEndpoints(ctx context.Context, siteName string) (*store.SiteEndpoints, error)
-	PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUID, bucket, window time.Duration, source store.Source) ([]store.SeriesBucket, error)
+	PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUID, bucket, window time.Duration, source store.Source, latencySource string) ([]store.SeriesBucket, error)
 	PairSummary(ctx context.Context, srcAgents, dstTargets []uuid.UUID, window time.Duration, source store.Source) (*store.PairSummaryRow, error)
-	PairLatencySource(ctx context.Context, srcAgents, dstTargets []uuid.UUID) (string, error)
+	PairLatencySource(ctx context.Context, srcAgents, dstTargets []uuid.UUID, window time.Duration, source store.Source) (string, error)
 	DirectionLatest(ctx context.Context, srcAgents, dstTargets []uuid.UUID, horizon time.Duration) ([]store.MatrixRow, error)
 
 	ListOutages(ctx context.Context, window time.Duration) ([]store.OutageInfo, error)

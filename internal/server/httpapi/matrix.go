@@ -9,9 +9,12 @@ import (
 )
 
 type probeJSON struct {
-	Type      string `json:"type"`
-	Status    string `json:"status"`
-	LatencyUS *int64 `json:"latency_us"`
+	Type          string    `json:"type"`
+	Status        string    `json:"status"`
+	LatencyUS     *int64    `json:"latency_us"`
+	LatencySource string    `json:"latency_source"`
+	LossPct       *float32  `json:"loss_pct"`
+	AsOf          time.Time `json:"as_of"`
 }
 
 type cellJSON struct {
@@ -69,11 +72,7 @@ func foldMatrix(rows []store.MatrixRow, expected []store.SitePair) []cellJSON {
 			if r.Time.After(c.AsOf) {
 				c.AsOf = r.Time
 			}
-			c.Probes = append(c.Probes, probeJSON{
-				Type:      probeTypeName(r.ProbeType),
-				Status:    probeStatusName(r.Status),
-				LatencyUS: r.LatencyUS,
-			})
+			c.Probes = append(c.Probes, toProbeJSON(r))
 		}
 		switch {
 		case len(a.rows) == 0:
@@ -94,6 +93,17 @@ func foldMatrix(rows []store.MatrixRow, expected []store.SitePair) []cellJSON {
 		return out[i].Dst < out[j].Dst
 	})
 	return out
+}
+
+func toProbeJSON(r store.MatrixRow) probeJSON {
+	return probeJSON{
+		Type:          probeTypeName(r.ProbeType),
+		Status:        probeStatusName(r.Status),
+		LatencyUS:     r.LatencyUS,
+		LatencySource: r.LatencySource,
+		LossPct:       r.LossPct,
+		AsOf:          r.Time,
+	}
 }
 
 // directionStatus is the same status rule applied to one direction's

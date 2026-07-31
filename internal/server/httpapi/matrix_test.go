@@ -63,6 +63,9 @@ func TestFoldMatrixStatuses(t *testing.T) {
 	if deg.Status != "degraded" || deg.LossPct == nil || *deg.LossPct != 100 {
 		t.Errorf("lon→nyc = %+v, want degraded with worst loss 100", deg)
 	}
+	if len(deg.Probes) != 2 || deg.Probes[1].LossPct == nil || *deg.Probes[1].LossPct != 100 {
+		t.Errorf("lon→nyc probes = %+v, want per-probe loss detail", deg.Probes)
+	}
 
 	if down := cellByPair(t, cells, "nyc", "syd"); down.Status != "down" {
 		t.Errorf("nyc→syd = %+v, want down", down)

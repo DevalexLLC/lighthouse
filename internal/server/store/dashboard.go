@@ -15,12 +15,13 @@ import (
 //
 // latencyExpr is the per-row latency estimate: real RTT when a prober
 // measures it (ICMP, M4+), otherwise the purest available network timing.
-// The source column is reported alongside so the UI can label the axis
-// honestly instead of passing TCP-connect time off as RTT.
+// Windowed queries choose one latencySourceExpr value and aggregate only
+// successful rows from that family, so charts never mix RTT with connect
+// timings or turn a fast failure into apparent low latency.
 //
-// The same COALESCE ladder is frozen into the hourly cagg (migration 0006);
-// changing the order here without a new cagg version would make raw and
-// aggregate windows disagree.
+// The same COALESCE ladder is frozen into the hourly cagg definition
+// (migration 0006); once that migration ships, changing the order here
+// requires a forward-only cagg rebuild or raw and aggregate windows disagree.
 const latencyExpr = `COALESCE(rtt_avg_us, tcp_connect_us, tls_handshake_us, ttfb_us, total_us)`
 
 const latencySourceExpr = `CASE
@@ -30,6 +31,41 @@ const latencySourceExpr = `CASE
 	WHEN ttfb_us          IS NOT NULL THEN 'ttfb'
 	WHEN total_us         IS NOT NULL THEN 'total'
 	ELSE '' END`
+
+// latencySourcePriority orders timing families purest-first for
+// chooseLatencySource: real RTT beats connect time beats application
+// timings. Must list every non-empty latencySourceExpr value.
+var latencySourcePriority = []string{"rtt", "tcp_connect", "tls_handshake", "ttfb", "total"}
+
+// chooseLatencySource picks the timing family a direction's window should
+// chart: the purest family holding at least 5% of the window's successful
+// latency samples. The coverage floor stops a just-enabled prober from
+// hiding months of lower-priority history (one fresh RTT sample must not
+// blank a 365d TCP chart); the fallback keeps the purest family when
+// nothing clears the floor. "" means no successful samples at all.
+func chooseLatencySource(counts map[string]int64) string {
+	var total int64
+	for _, n := range counts {
+		total += n
+	}
+	if total == 0 {
+		return ""
+	}
+	fallback := ""
+	for _, family := range latencySourcePriority {
+		n := counts[family]
+		if n <= 0 {
+			continue
+		}
+		if n*20 >= total {
+			return family
+		}
+		if fallback == "" {
+			fallback = family
+		}
+	}
+	return fallback
+}
 
 // Source names the table a windowed pair query reads from. Raw serves the
 // short windows at full resolution; hourly/daily serve the long windows
@@ -288,12 +324,14 @@ func (s *Store) SiteEndpoints(ctx context.Context, siteName string) (*SiteEndpoi
 // PairSeries buckets one direction (srcAgents → dstTargets) over the window,
 // reading raw or a continuous aggregate per source. Aggregate sources add
 // p50/p95/p99 from the rolled-up UddSketch; raw leaves them nil.
-func (s *Store) PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUID, bucket, window time.Duration, source Source) ([]SeriesBucket, error) {
+func (s *Store) PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUID, bucket, window time.Duration, source Source, latencySource string) ([]SeriesBucket, error) {
 	var sql string
 	if table := source.table(); table == "" {
 		sql = fmt.Sprintf(
 			`SELECT time_bucket($1::interval, time) AS bucket,
-			        min(%[1]s)::float8, avg(%[1]s)::float8, max(%[1]s)::float8,
+			        min(%[1]s) FILTER (WHERE status = 1 AND %[2]s = $5)::float8,
+			        avg(%[1]s) FILTER (WHERE status = 1 AND %[2]s = $5)::float8,
+			        max(%[1]s) FILTER (WHERE status = 1 AND %[2]s = $5)::float8,
 			        100.0 * (1 - sum(received)::float8 / NULLIF(sum(sent), 0)),
 			        count(*),
 			        count(*) FILTER (WHERE status <> 1),
@@ -301,28 +339,29 @@ func (s *Store) PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUI
 			   FROM probe_results
 			  WHERE agent_id = ANY($2) AND target_id = ANY($3)
 			    AND time > now() - $4::interval
-			  GROUP BY bucket ORDER BY bucket`, latencyExpr)
+			  GROUP BY bucket ORDER BY bucket`, latencyExpr, latencySourceExpr)
 	} else {
 		// time_bucket over the cagg's bucket column regroups hourly rows
 		// into wider chart buckets (identity when widths already match).
 		// Averages come from the materialized sums/counts.
 		sql = fmt.Sprintf(
 			`SELECT time_bucket($1::interval, bucket) AS b,
-			        min(lat_min_us)::float8,
-			        sum(lat_sum_us)::float8 / NULLIF(sum(lat_count), 0)::float8,
-			        max(lat_max_us)::float8,
+			        min(lat_min_us) FILTER (WHERE latency_source = $5)::float8,
+			        sum(lat_sum_us) FILTER (WHERE latency_source = $5)::float8
+			            / NULLIF(sum(lat_count) FILTER (WHERE latency_source = $5), 0)::float8,
+			        max(lat_max_us) FILTER (WHERE latency_source = $5)::float8,
 			        100.0 * (1 - sum(received)::float8 / NULLIF(sum(sent), 0)::float8),
 			        sum(samples)::bigint,
 			        (sum(samples) - sum(ok_samples))::bigint,
-			        approx_percentile(0.50, rollup(lat_pctl)),
-			        approx_percentile(0.95, rollup(lat_pctl)),
-			        approx_percentile(0.99, rollup(lat_pctl))
+			        approx_percentile(0.50, rollup(lat_pctl) FILTER (WHERE latency_source = $5)),
+			        approx_percentile(0.95, rollup(lat_pctl) FILTER (WHERE latency_source = $5)),
+			        approx_percentile(0.99, rollup(lat_pctl) FILTER (WHERE latency_source = $5))
 			   FROM %s
 			  WHERE agent_id = ANY($2) AND target_id = ANY($3)
 			    AND bucket > now() - $4::interval
 			  GROUP BY b ORDER BY b`, table)
 	}
-	rows, err := s.pool.Query(ctx, sql, bucket, srcAgents, dstTargets, window)
+	rows, err := s.pool.Query(ctx, sql, bucket, srcAgents, dstTargets, window, latencySource)
 	if err != nil {
 		return nil, fmt.Errorf("pair series: %w", err)
 	}
@@ -340,33 +379,41 @@ func (s *Store) PairSeries(ctx context.Context, srcAgents, dstTargets []uuid.UUI
 }
 
 // PairSummary aggregates one direction (srcAgents → dstTargets) over the
-// window, reading raw or a continuous aggregate per source, plus the
-// latency source of the newest raw row so charts and summary agree on what
-// "latency" means right now.
+// window, reading raw or a continuous aggregate and selecting one successful
+// timing family so charts and summaries describe the same measurement.
 func (s *Store) PairSummary(ctx context.Context, srcAgents, dstTargets []uuid.UUID, window time.Duration, source Source) (*PairSummaryRow, error) {
+	latencySource, err := s.PairLatencySource(ctx, srcAgents, dstTargets, window, source)
+	if err != nil {
+		return nil, err
+	}
 	var sql string
 	if table := source.table(); table == "" {
 		sql = fmt.Sprintf(
-			`SELECT min(%[1]s)::float8, avg(%[1]s)::float8, max(%[1]s)::float8,
+			`SELECT min(%[1]s) FILTER (WHERE status = 1 AND %[2]s = $4)::float8,
+			        avg(%[1]s) FILTER (WHERE status = 1 AND %[2]s = $4)::float8,
+			        max(%[1]s) FILTER (WHERE status = 1 AND %[2]s = $4)::float8,
 			        100.0 * (1 - sum(received)::float8 / NULLIF(sum(sent), 0)),
 			        count(*),
 			        max(time) FILTER (WHERE status = 1),
 			        NULL::float8, NULL::float8, NULL::float8,
-			        avg(jitter_us)::float8, avg(tcp_connect_us)::float8, avg(tls_handshake_us)::float8
+			        avg(jitter_us) FILTER (WHERE status = 1)::float8,
+			        avg(tcp_connect_us) FILTER (WHERE status = 1)::float8,
+			        avg(tls_handshake_us) FILTER (WHERE status = 1)::float8
 			   FROM probe_results
 			  WHERE agent_id = ANY($1) AND target_id = ANY($2)
-			    AND time > now() - $3::interval`, latencyExpr)
+			    AND time > now() - $3::interval`, latencyExpr, latencySourceExpr)
 	} else {
 		sql = fmt.Sprintf(
-			`SELECT min(lat_min_us)::float8,
-			        sum(lat_sum_us)::float8 / NULLIF(sum(lat_count), 0)::float8,
-			        max(lat_max_us)::float8,
+			`SELECT min(lat_min_us) FILTER (WHERE latency_source = $4)::float8,
+			        sum(lat_sum_us) FILTER (WHERE latency_source = $4)::float8
+			            / NULLIF(sum(lat_count) FILTER (WHERE latency_source = $4), 0)::float8,
+			        max(lat_max_us) FILTER (WHERE latency_source = $4)::float8,
 			        100.0 * (1 - sum(received)::float8 / NULLIF(sum(sent), 0)::float8),
 			        coalesce(sum(samples), 0)::bigint,
 			        max(last_ok_at),
-			        approx_percentile(0.50, rollup(lat_pctl)),
-			        approx_percentile(0.95, rollup(lat_pctl)),
-			        approx_percentile(0.99, rollup(lat_pctl)),
+			        approx_percentile(0.50, rollup(lat_pctl) FILTER (WHERE latency_source = $4)),
+			        approx_percentile(0.95, rollup(lat_pctl) FILTER (WHERE latency_source = $4)),
+			        approx_percentile(0.99, rollup(lat_pctl) FILTER (WHERE latency_source = $4)),
 			        sum(jitter_sum_us)::float8 / NULLIF(sum(jitter_count), 0)::float8,
 			        sum(tcp_sum_us)::float8 / NULLIF(sum(tcp_count), 0)::float8,
 			        sum(tls_sum_us)::float8 / NULLIF(sum(tls_count), 0)::float8
@@ -375,40 +422,59 @@ func (s *Store) PairSummary(ctx context.Context, srcAgents, dstTargets []uuid.UU
 			    AND bucket > now() - $3::interval`, table)
 	}
 	var p PairSummaryRow
-	err := s.pool.QueryRow(ctx, sql, srcAgents, dstTargets, window).
+	err = s.pool.QueryRow(ctx, sql, srcAgents, dstTargets, window, latencySource).
 		Scan(&p.MinUS, &p.AvgUS, &p.MaxUS, &p.LossPct, &p.Samples, &p.LastOKAt,
 			&p.P50US, &p.P95US, &p.P99US,
 			&p.JitterAvgUS, &p.TCPConnectAvgUS, &p.TLSHandshakeAvgUS)
 	if err != nil {
 		return nil, fmt.Errorf("pair summary: %w", err)
 	}
-	p.LatencySource, err = s.PairLatencySource(ctx, srcAgents, dstTargets)
-	if err != nil {
-		return nil, err
-	}
+	p.LatencySource = latencySource
 	return &p, nil
 }
 
-// PairLatencySource reports what the newest latency-measuring raw row for
-// the direction actually measured ('rtt', 'tcp_connect', ...) so the UI
-// labels the axis honestly. Rows without any latency (traceroute runs by
-// design, failed probes) are skipped — otherwise the label flickers to ""
-// whenever one of those is momentarily newest. Bounded by raw retention
-// (14d): anything older is gone, and the bound keeps the series-index scan
-// tight. "" means no recent measured rows.
-func (s *Store) PairLatencySource(ctx context.Context, srcAgents, dstTargets []uuid.UUID) (string, error) {
-	var src string
-	err := s.pool.QueryRow(ctx, fmt.Sprintf(
-		`SELECT %s FROM probe_results
-		  WHERE agent_id = ANY($1) AND target_id = ANY($2)
-		    AND time > now() - interval '14 days'
-		    AND %s IS NOT NULL
-		  ORDER BY time DESC LIMIT 1`, latencySourceExpr, latencyExpr),
-		srcAgents, dstTargets).Scan(&src)
-	if err != nil && err != pgx.ErrNoRows {
+// PairLatencySource chooses one successful timing family for a direction
+// and window (see chooseLatencySource for the priority + coverage rule).
+// Aggregate windows inspect their serving cagg, so source selection still
+// works when the matching raw rows have aged out.
+func (s *Store) PairLatencySource(ctx context.Context, srcAgents, dstTargets []uuid.UUID, window time.Duration, source Source) (string, error) {
+	var sql string
+	if table := source.table(); table == "" {
+		sql = fmt.Sprintf(
+			`SELECT %s AS latency_source, count(*)
+			   FROM probe_results
+			  WHERE agent_id = ANY($1) AND target_id = ANY($2)
+			    AND time > now() - $3::interval
+			    AND status = 1
+			    AND %s IS NOT NULL
+			  GROUP BY latency_source`, latencySourceExpr, latencyExpr)
+	} else {
+		sql = fmt.Sprintf(
+			`SELECT latency_source, sum(lat_count)::bigint
+			   FROM %s
+			  WHERE agent_id = ANY($1) AND target_id = ANY($2)
+			    AND bucket > now() - $3::interval
+			    AND latency_source <> '' AND lat_count > 0
+			  GROUP BY latency_source`, table)
+	}
+	rows, err := s.pool.Query(ctx, sql, srcAgents, dstTargets, window)
+	if err != nil {
 		return "", fmt.Errorf("pair latency source: %w", err)
 	}
-	return src, nil
+	defer rows.Close()
+	counts := map[string]int64{}
+	for rows.Next() {
+		var family string
+		var n int64
+		if err := rows.Scan(&family, &n); err != nil {
+			return "", fmt.Errorf("pair latency source: %w", err)
+		}
+		counts[family] = n
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("pair latency source: %w", err)
+	}
+	return chooseLatencySource(counts), nil
 }
 
 // DirectionLatest returns the latest row per (agent, target, probe type)

@@ -120,6 +120,7 @@ type directionJSON struct {
 	JitterAvgUS       *float64    `json:"jitter_avg_us"`
 	TCPConnectAvgUS   *float64    `json:"tcp_connect_avg_us"`
 	TLSHandshakeAvgUS *float64    `json:"tls_handshake_avg_us"`
+	Checks            []probeJSON `json:"checks"`
 }
 
 // direction assembles one direction's summary (aggregates over the window,
@@ -132,6 +133,10 @@ func (a *api) direction(r *http.Request, src, dst *store.SiteEndpoints, spec win
 	latest, err := a.db.DirectionLatest(r.Context(), src.AgentIDs, dst.TargetIDs, staleHorizon)
 	if err != nil {
 		return directionJSON{}, err
+	}
+	checks := make([]probeJSON, len(latest))
+	for i, row := range latest {
+		checks[i] = toProbeJSON(row)
 	}
 	return directionJSON{
 		Status:   directionStatus(latest),
@@ -146,6 +151,7 @@ func (a *api) direction(r *http.Request, src, dst *store.SiteEndpoints, spec win
 		JitterAvgUS:       sum.JitterAvgUS,
 		TCPConnectAvgUS:   sum.TCPConnectAvgUS,
 		TLSHandshakeAvgUS: sum.TLSHandshakeAvgUS,
+		Checks:            checks,
 	}, nil
 }
 
@@ -219,29 +225,35 @@ func (a *api) handleSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	aToB, err := a.db.PairSeries(r.Context(), ea.AgentIDs, eb.TargetIDs, spec.Bucket, spec.Window, spec.Source)
+	aSource, err := a.db.PairLatencySource(r.Context(), ea.AgentIDs, eb.TargetIDs, spec.Window, spec.Source)
+	if err != nil {
+		internalError(w, "series a→b source", err)
+		return
+	}
+	bSource, err := a.db.PairLatencySource(r.Context(), eb.AgentIDs, ea.TargetIDs, spec.Window, spec.Source)
+	if err != nil {
+		internalError(w, "series b→a source", err)
+		return
+	}
+	aToB, err := a.db.PairSeries(r.Context(), ea.AgentIDs, eb.TargetIDs, spec.Bucket, spec.Window, spec.Source, aSource)
 	if err != nil {
 		internalError(w, "series a→b", err)
 		return
 	}
-	bToA, err := a.db.PairSeries(r.Context(), eb.AgentIDs, ea.TargetIDs, spec.Bucket, spec.Window, spec.Source)
+	bToA, err := a.db.PairSeries(r.Context(), eb.AgentIDs, ea.TargetIDs, spec.Bucket, spec.Window, spec.Source, bSource)
 	if err != nil {
 		internalError(w, "series b→a", err)
-		return
-	}
-	// The axis label follows whatever the newest raw data measures.
-	latSource, err := a.db.PairLatencySource(r.Context(), ea.AgentIDs, eb.TargetIDs)
-	if err != nil {
-		internalError(w, "series source", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metric": metric, "window": windowName(r),
 		"resolution_s":   int(spec.Bucket.Seconds()),
 		"source":         string(spec.Source),
-		"latency_source": latSource,
-		"a_to_b":         map[string]any{"points": toPoints(aToB)},
-		"b_to_a":         map[string]any{"points": toPoints(bToA)},
+		// Top-level latency_source predates directional sources; it stays
+		// as the a_to_b alias so pre-M5 clients keep an honest axis label.
+		"latency_source": aSource,
+		"a_to_b":         map[string]any{"latency_source": aSource, "points": toPoints(aToB)},
+		"b_to_a":         map[string]any{"latency_source": bSource, "points": toPoints(bToA)},
 	})
 }
 
