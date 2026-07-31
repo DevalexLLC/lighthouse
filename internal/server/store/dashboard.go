@@ -389,17 +389,21 @@ func (s *Store) PairSummary(ctx context.Context, srcAgents, dstTargets []uuid.UU
 	return &p, nil
 }
 
-// PairLatencySource reports what the newest raw row for the direction
-// actually measured ('rtt', 'tcp_connect', ...) so the UI labels the axis
-// honestly. Bounded by raw retention (14d): anything older is gone, and the
-// bound keeps the series-index scan tight. "" means no recent rows.
+// PairLatencySource reports what the newest latency-measuring raw row for
+// the direction actually measured ('rtt', 'tcp_connect', ...) so the UI
+// labels the axis honestly. Rows without any latency (traceroute runs by
+// design, failed probes) are skipped — otherwise the label flickers to ""
+// whenever one of those is momentarily newest. Bounded by raw retention
+// (14d): anything older is gone, and the bound keeps the series-index scan
+// tight. "" means no recent measured rows.
 func (s *Store) PairLatencySource(ctx context.Context, srcAgents, dstTargets []uuid.UUID) (string, error) {
 	var src string
 	err := s.pool.QueryRow(ctx, fmt.Sprintf(
 		`SELECT %s FROM probe_results
 		  WHERE agent_id = ANY($1) AND target_id = ANY($2)
 		    AND time > now() - interval '14 days'
-		  ORDER BY time DESC LIMIT 1`, latencySourceExpr),
+		    AND %s IS NOT NULL
+		  ORDER BY time DESC LIMIT 1`, latencySourceExpr, latencyExpr),
 		srcAgents, dstTargets).Scan(&src)
 	if err != nil && err != pgx.ErrNoRows {
 		return "", fmt.Errorf("pair latency source: %w", err)
