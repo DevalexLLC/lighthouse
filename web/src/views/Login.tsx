@@ -7,6 +7,7 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -30,7 +31,7 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
 
   return (
     <div className="login-wrap">
-      <form className="login-card" onSubmit={submit}>
+      <form className="login-card" onSubmit={submit} aria-busy={busy}>
         <div className="login-mark">
           <span className="beacon" aria-hidden="true" />
           <h1>Lighthouse</h1>
@@ -47,15 +48,27 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
         </label>
         <label className="eyebrow">
           Password
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <span className="password-field">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
+              value={password}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'login-error' : undefined}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              className="password-toggle"
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </span>
         </label>
         {error && (
-          <p className="error" role="alert">
+          <p className="error login-error" id="login-error" role="alert">
             {error}
           </p>
         )}

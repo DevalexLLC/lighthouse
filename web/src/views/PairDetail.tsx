@@ -2,7 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import type uPlot from 'uplot'
 import { apiGet } from '../api'
 import Chart from '../components/Chart'
-import { fmtAgo, fmtLatency, fmtLatencyParts, fmtTime, latencyAxisLabel } from '../format'
+import {
+  fmtAgo,
+  fmtLatency,
+  fmtLatencyGroup,
+  fmtLatencyParts,
+  fmtTime,
+  latencyAxisLabel,
+  latencySourceName,
+} from '../format'
 import type {
   CurrentPath,
   DirectionSummary,
@@ -58,6 +66,65 @@ function hasAnyValue(points: SeriesPoint[], metric: Metric): boolean {
     : points.some((p) => p.avg_us != null)
 }
 
+function statusLabel(status: string): string {
+  return status.replaceAll('_', ' ').replace(/^\w/, (c) => c.toUpperCase())
+}
+
+function densify(points: SeriesPoint[], resolution: number): SeriesPoint[] {
+  if (points.length < 2) return points
+  const out: SeriesPoint[] = []
+  for (const point of points) {
+    const previous = out.at(-1)
+    if (previous) {
+      for (let t = previous.t + resolution; t < point.t; t += resolution) {
+        out.push({
+          t,
+          min_us: null,
+          avg_us: null,
+          max_us: null,
+          loss_pct: null,
+          samples: 0,
+          failures: 0,
+          p50_us: null,
+          p95_us: null,
+          p99_us: null,
+        })
+      }
+    }
+    out.push(point)
+  }
+  return out
+}
+
+function lossScaleCeiling(series: SeriesResponse): number {
+  const values = [...series.a_to_b.points, ...series.b_to_a.points]
+    .map((p) => p.loss_pct)
+    .filter((v): v is number => v != null)
+  const target = Math.max(0, ...values) * 1.1
+  return [5, 10, 25, 50, 100].find((ceiling) => ceiling >= target) ?? 100
+}
+
+function latestValueIndex(data: uPlot.AlignedData): number {
+  for (let i = data[0].length - 1; i >= 0; i--) {
+    if (data.slice(1).some((column) => column[i] != null)) return i
+  }
+  return 0
+}
+
+function latestLegendPlugin(index: number): uPlot.Plugin {
+  const restore = (u: uPlot) => u.setLegend({ idx: index })
+  return {
+    hooks: {
+      ready: [restore],
+      setCursor: [
+        (u) => {
+          if ((u.cursor.left ?? -1) < 0) restore(u)
+        },
+      ],
+    },
+  }
+}
+
 function DirectionCard({
   title,
   s,
@@ -67,13 +134,14 @@ function DirectionCard({
   s: DirectionSummary
   dir: 'a' | 'b'
 }) {
+  const checks = s.checks ?? []
   return (
     <div className={'pair-card dir-' + dir}>
       <h3>
         <span className={'swatch series-' + dir} />
         {title}
         <span style={{ marginLeft: 'auto' }} className={'status-text-' + s.status}>
-          {s.status}
+          {statusLabel(s.status)}
         </span>
       </h3>
       <div className="pair-headline">
@@ -89,15 +157,18 @@ function DirectionCard({
         <div>
           <dt>min / max</dt>
           <dd>
-            {fmtLatency(s.latency.min_us)} / {fmtLatency(s.latency.max_us)}
+            {fmtLatencyGroup([s.latency.min_us, s.latency.max_us])}
           </dd>
         </div>
         {s.latency.p50_us != null && (
           <div>
             <dt>p50 / p95 / p99</dt>
             <dd>
-              {fmtLatency(s.latency.p50_us)} / {fmtLatency(s.latency.p95_us ?? null)} /{' '}
-              {fmtLatency(s.latency.p99_us ?? null)}
+              {fmtLatencyGroup([
+                s.latency.p50_us,
+                s.latency.p95_us ?? null,
+                s.latency.p99_us ?? null,
+              ])}
             </dd>
           </div>
         )}
@@ -113,19 +184,40 @@ function DirectionCard({
           <div>
             <dt>TCP / TLS</dt>
             <dd>
-              {fmtLatency(s.tcp_connect_avg_us)} / {fmtLatency(s.tls_handshake_avg_us)}
+              {fmtLatencyGroup([s.tcp_connect_avg_us, s.tls_handshake_avg_us])}
             </dd>
           </div>
         )}
         <div>
           <dt>Last OK</dt>
-          <dd>{fmtTime(s.last_ok_at)}</dd>
+          <dd title={fmtTime(s.last_ok_at)}>{fmtAgo(s.last_ok_at)}</dd>
         </div>
         <div>
           <dt>Samples</dt>
           <dd>{s.samples}</dd>
         </div>
       </dl>
+      {checks.length > 0 && (
+        <div className="check-list" aria-label="Latest probe checks">
+          {checks.map((check, index) => (
+            <span
+              key={`${check.type}-${index}`}
+              className={'check-chip ' + (check.status === 'ok' ? 'check-ok' : 'check-failed')}
+              title={[
+                statusLabel(check.status),
+                check.latency_us != null ? fmtLatency(check.latency_us) : '',
+                check.loss_pct != null ? `${check.loss_pct.toFixed(0)}% loss` : '',
+                fmtTime(check.as_of),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            >
+              <span className="check-indicator" aria-hidden="true" />
+              {check.type} <strong>{statusLabel(check.status)}</strong>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -145,14 +237,15 @@ function PathList({ title, dir, paths }: { title: string; dir: 'a' | 'b'; paths:
           <div key={p.agent} className="path-chain">
             <div className="path-meta">
               <span className="mono">{p.agent}</span>
-              <span className="hash-chip" title={p.path_hash}>
-                {p.path_hash.slice(0, 12)}
-              </span>
               <span className="hint" title={fmtTime(p.updated_at)}>
                 {fmtAgo(p.updated_at)}
                 {p.dest_reached ? '' : ' · incomplete'}
               </span>
             </div>
+            <details className="path-id">
+              <summary>Technical path ID</summary>
+              <code>{p.path_hash}</code>
+            </details>
             <ol className="hops mono">
               {p.hops.map((h) => (
                 <li key={h.ttl}>
@@ -219,7 +312,13 @@ export default function PairDetail({
   }, [a, b, win, metric, onAuthError])
 
   const mkOptions = useMemo(() => {
-    return (direction: 'aToB' | 'bToA', axisLabel: string, withPctl: boolean): Omit<uPlot.Options, 'width'> => {
+    return (
+      direction: 'aToB' | 'bToA',
+      axisLabel: string,
+      withPctl: boolean,
+      latestIndex: number,
+      lossCeiling: number,
+    ): Omit<uPlot.Options, 'width'> => {
       const c = palette()
       const stroke = c[direction]
       const axisStyle = {
@@ -252,13 +351,14 @@ export default function PairDetail({
       return {
         height: 230,
         series,
-        scales: metric === 'loss' ? { y: { range: [0, 100] } } : {},
+        scales: metric === 'loss' ? { y: { range: [0, lossCeiling] } } : {},
         axes: [
           { ...axisStyle },
           { ...axisStyle, label: axisLabel, size: 64 },
         ],
         cursor: { drag: { x: true, y: false } },
         legend: { live: true },
+        plugins: [latestLegendPlugin(latestIndex)],
       }
     }
     // Rebuild when metric changes (series shape differs).
@@ -267,8 +367,8 @@ export default function PairDetail({
   if (error && !series) return <p className="error">Failed to load pair: {error}</p>
   if (!series || !pair) return <p className="muted">Loading…</p>
 
-  const axisLabel = metric === 'loss' ? 'Loss (%)' : latencyAxisLabel(series.latency_source)
   const withPctl = metric === 'latency' && series.source !== 'raw'
+  const lossCeiling = lossScaleCeiling(series)
   const sourceLabel = series.source === 'raw' ? 'raw' : `${series.source} aggregate`
   const bucketLabel =
     (series.resolution_s >= 3600
@@ -303,14 +403,24 @@ export default function PairDetail({
       <div className="controls">
         <div className="control-group" role="group" aria-label="Metric">
           {(['latency', 'loss'] as const).map((m) => (
-            <button key={m} className={metric === m ? 'active' : ''} onClick={() => setMetric(m)}>
+            <button
+              key={m}
+              className={metric === m ? 'active' : ''}
+              aria-pressed={metric === m}
+              onClick={() => setMetric(m)}
+            >
               {m}
             </button>
           ))}
         </div>
         <div className="control-group" role="group" aria-label="Window">
           {WINDOWS.map((w) => (
-            <button key={w} className={win === w ? 'active' : ''} onClick={() => setWin(w)}>
+            <button
+              key={w}
+              className={win === w ? 'active' : ''}
+              aria-pressed={win === w}
+              onClick={() => setWin(w)}
+            >
               {w}
             </button>
           ))}
@@ -334,11 +444,17 @@ export default function PairDetail({
       </div>
 
       {directions.map(({ key, dir, chart, title }) => {
-        const points = series[key].points
+        const points = densify(series[key].points, series.resolution_s)
+        const chartData = toChartData(points, metric, withPctl)
+        const directionSource = series[key].latency_source || series.latency_source
+        const axisLabel = metric === 'loss' ? 'Loss (%)' : latencyAxisLabel(directionSource)
         return (
           <div key={key} className="card chart-card">
             <h3>
               <span className={'swatch series-' + dir} /> {title}
+              {metric === 'latency' && (
+                <span className="metric-source">{latencySourceName(directionSource)}</span>
+              )}
             </h3>
             {points.length === 0 ? (
               <div className="chart-empty">
@@ -355,7 +471,16 @@ export default function PairDetail({
                 </p>
               </div>
             ) : (
-              <Chart options={mkOptions(chart, axisLabel, withPctl)} data={toChartData(points, metric, withPctl)} />
+              <Chart
+                options={mkOptions(
+                  chart,
+                  axisLabel,
+                  withPctl,
+                  latestValueIndex(chartData),
+                  lossCeiling,
+                )}
+                data={chartData}
+              />
             )}
           </div>
         )

@@ -63,7 +63,14 @@ export default function App() {
     setUser(null)
   }, [])
 
-  if (!booted) return null
+  if (!booted) {
+    return (
+      <div className="boot-state" role="status">
+        <span className="beacon" aria-hidden="true" />
+        Loading Lighthouse…
+      </div>
+    )
+  }
   if (!user) {
     return (
       <Login
@@ -83,13 +90,25 @@ export default function App() {
           Lighthouse
         </a>
         <nav className="topnav" aria-label="Views">
-          <a href="#/" className={route.view === 'matrix' || route.view === 'pair' ? 'active' : ''}>
+          <a
+            href="#/"
+            className={route.view === 'matrix' || route.view === 'pair' ? 'active' : ''}
+            aria-current={route.view === 'matrix' || route.view === 'pair' ? 'page' : undefined}
+          >
             Matrix
           </a>
-          <a href="#/outages" className={route.view === 'outages' ? 'active' : ''}>
+          <a
+            href="#/outages"
+            className={route.view === 'outages' ? 'active' : ''}
+            aria-current={route.view === 'outages' ? 'page' : undefined}
+          >
             Outages
           </a>
-          <a href="#/paths" className={route.view === 'paths' ? 'active' : ''}>
+          <a
+            href="#/paths"
+            className={route.view === 'paths' ? 'active' : ''}
+            aria-current={route.view === 'paths' ? 'page' : undefined}
+          >
             Paths
           </a>
         </nav>

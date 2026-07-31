@@ -14,7 +14,7 @@ export function hopLabel(h: Hop | undefined): string {
 // HopDiff renders old and new hop lists side by side, one row per TTL,
 // highlighting rows whose responder set changed.
 function HopDiff({ oldHops, newHops }: { oldHops: Hop[]; newHops: Hop[] }) {
-  const rows = Math.max(oldHops.length, newHops.length)
+  const rows = Math.max(0, ...oldHops.map((h) => h.ttl), ...newHops.map((h) => h.ttl))
   const byTTL = (hops: Hop[], ttl: number) => hops.find((h) => h.ttl === ttl)
   return (
     <div className="scroll-x">
@@ -22,6 +22,7 @@ function HopDiff({ oldHops, newHops }: { oldHops: Hop[]; newHops: Hop[] }) {
         <thead>
           <tr>
             <th className="eyebrow">ttl</th>
+            <th className="eyebrow">change</th>
             <th className="eyebrow">old path</th>
             <th className="eyebrow">new path</th>
           </tr>
@@ -32,9 +33,11 @@ function HopDiff({ oldHops, newHops }: { oldHops: Hop[]; newHops: Hop[] }) {
             const o = byTTL(oldHops, ttl)
             const n = byTTL(newHops, ttl)
             const changed = hopLabel(o) !== hopLabel(n)
+            const kind = !o && n ? 'added' : o && !n ? 'removed' : changed ? 'changed' : 'same'
             return (
-              <tr key={ttl} className={changed ? 'hop-changed' : ''}>
+              <tr key={ttl} className={changed ? `hop-changed hop-${kind}` : ''}>
                 <td className="mono">{ttl}</td>
+                <td>{changed ? <span className="change-badge">{kind}</span> : <span className="hint">—</span>}</td>
                 <td className="mono">{hopLabel(o)}</td>
                 <td className="mono">{hopLabel(n)}</td>
               </tr>
@@ -46,21 +49,36 @@ function HopDiff({ oldHops, newHops }: { oldHops: Hop[]; newHops: Hop[] }) {
   )
 }
 
+function changedHopCount(oldHops: Hop[], newHops: Hop[]): number {
+  const ttls = new Set([...oldHops.map((h) => h.ttl), ...newHops.map((h) => h.ttl)])
+  let changed = 0
+  for (const ttl of ttls) {
+    if (
+      hopLabel(oldHops.find((h) => h.ttl === ttl)) !==
+      hopLabel(newHops.find((h) => h.ttl === ttl))
+    ) {
+      changed++
+    }
+  }
+  return changed
+}
+
 function EventRow({ e }: { e: PathEvent }) {
   const [expanded, setExpanded] = useState(false)
+  const count = changedHopCount(e.old_hops, e.new_hops)
+  const detailsID = `path-event-${e.id}`
   return (
     <div className="path-event">
-      <button className="path-event-head" onClick={() => setExpanded(!expanded)}>
+      <button
+        className="path-event-head"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        aria-controls={detailsID}
+      >
         <span className="mono">
           {e.src_site} → {e.dst_site ?? e.target ?? '?'}
         </span>
-        <span className="hash-chip" title={e.old_path_hash}>
-          {e.old_path_hash.slice(0, 12)}
-        </span>
-        <span aria-hidden="true">→</span>
-        <span className="hash-chip" title={e.new_path_hash}>
-          {e.new_path_hash.slice(0, 12)}
-        </span>
+        <span className="path-summary">{count} {count === 1 ? 'hop' : 'hops'} changed</span>
         <span className="hint" title={fmtTime(e.time)}>
           {fmtAgo(e.time)}
         </span>
@@ -68,7 +86,17 @@ function EventRow({ e }: { e: PathEvent }) {
           <span aria-hidden="true">{expanded ? '▾' : '▸'}</span> {expanded ? 'hide diff' : 'show diff'}
         </span>
       </button>
-      {expanded && <HopDiff oldHops={e.old_hops} newHops={e.new_hops} />}
+      {expanded && (
+        <div id={detailsID} className="path-event-details">
+          <div className="path-hashes">
+            <span className="hint">Path IDs</span>
+            <span className="hash-chip" title={e.old_path_hash}>{e.old_path_hash}</span>
+            <span aria-hidden="true">→</span>
+            <span className="hash-chip" title={e.new_path_hash}>{e.new_path_hash}</span>
+          </div>
+          <HopDiff oldHops={e.old_hops} newHops={e.new_hops} />
+        </div>
+      )}
     </div>
   )
 }
@@ -120,7 +148,12 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
       <div className="controls">
         <div className="control-group" role="group" aria-label="Window">
           {WINDOWS.map((w) => (
-            <button key={w} className={win === w ? 'active' : ''} onClick={() => setWin(w)}>
+            <button
+              key={w}
+              className={win === w ? 'active' : ''}
+              aria-pressed={win === w}
+              onClick={() => setWin(w)}
+            >
               {w}
             </button>
           ))}

@@ -14,6 +14,32 @@ export function fmtLatency(us: number | null | undefined): string {
   return p.unit ? `${p.value} ${p.unit}` : p.value
 }
 
+type LatencyUnit = 'µs' | 'ms' | 's'
+
+function latencyUnit(values: (number | null | undefined)[]): LatencyUnit {
+  const max = Math.max(0, ...values.filter((v): v is number => v != null).map(Math.abs))
+  if (max < 1000) return 'µs'
+  if (max < 1_000_000) return 'ms'
+  return 's'
+}
+
+function fmtLatencyInUnit(us: number | null | undefined, unit: LatencyUnit): string {
+  if (us == null) return '—'
+  if (unit === 'µs') return Math.round(us).toString()
+  if (unit === 'ms') {
+    const ms = us / 1000
+    return ms.toFixed(ms < 1 ? 3 : ms < 10 ? 2 : 1)
+  }
+  return (us / 1_000_000).toFixed(2)
+}
+
+// Related values use one unit so min/max and percentile rows scan cleanly.
+export function fmtLatencyGroup(values: (number | null | undefined)[]): string {
+  if (values.every((v) => v == null)) return '—'
+  const unit = latencyUnit(values)
+  return `${values.map((v) => fmtLatencyInUnit(v, unit)).join(' / ')} ${unit}`
+}
+
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString()
@@ -29,20 +55,25 @@ export function fmtAgo(iso: string | null | undefined): string {
   return `${Math.round(s / 86400)}d ago`
 }
 
-// Axis label for the latency metric, from the API's latency_source.
-export function latencyAxisLabel(source: string): string {
+// Human name for the API's latency_source (what "latency" measures).
+export function latencySourceName(source: string): string {
   switch (source) {
     case 'rtt':
-      return 'RTT (ms)'
+      return 'RTT'
     case 'tcp_connect':
-      return 'TCP connect (ms)'
+      return 'TCP connect'
     case 'tls_handshake':
-      return 'TLS handshake (ms)'
+      return 'TLS handshake'
     case 'ttfb':
-      return 'TTFB (ms)'
+      return 'TTFB'
     case 'total':
-      return 'Total time (ms)'
+      return 'Total time'
     default:
-      return 'Latency (ms)'
+      return 'Latency'
   }
+}
+
+// Axis label for the latency metric, from the API's latency_source.
+export function latencyAxisLabel(source: string): string {
+  return `${latencySourceName(source)} (ms)`
 }

@@ -15,27 +15,45 @@ function fmtDuration(openedAt: string, closedAt: string | null): string {
   return `${(s / 86400).toFixed(1)}d`
 }
 
+function errorSummary(error: string | null): string {
+  if (!error) return 'No error detail'
+  const lower = error.toLowerCase()
+  if (lower.includes('connection refused')) return 'Connection refused'
+  if (lower.includes('timeout') || lower.includes('deadline exceeded')) return 'Timed out'
+  if (lower.includes('no such host')) return 'Host not found'
+  return error.length > 52 ? error.slice(0, 49) + '…' : error
+}
+
 function Row({ o }: { o: OutageEvent }) {
   const open = o.closed_at == null
   return (
     <tr className={open ? 'outage-open' : 'outage-closed'}>
-      <td>
+      <td data-label="Kind">
         <span className={'kind-badge kind-' + o.kind}>
           {o.kind === 'agent_offline' ? 'agent offline' : 'probe failing'}
         </span>
       </td>
-      <td className="mono">
+      <td className="mono" data-label="Where">
         {o.kind === 'agent_offline'
           ? `${o.src_site} · ${o.agent}`
           : `${o.src_site} → ${o.dst_site ?? o.target ?? '?'}`}
       </td>
-      <td className="mono">{o.probe_type ?? '—'}</td>
-      <td title={fmtTime(o.opened_at)}>{fmtAgo(o.opened_at)}</td>
-      <td className={'mono' + (open ? ' status-text-down' : '')}>
+      <td className="mono" data-label="Probe">{o.probe_type ?? '—'}</td>
+      <td data-label="Opened" title={fmtTime(o.opened_at)}>{fmtAgo(o.opened_at)}</td>
+      <td data-label="Duration" className={'mono' + (open ? ' status-text-down' : '')}>
         {fmtDuration(o.opened_at, o.closed_at)}
         {open ? ' · open' : ''}
       </td>
-      <td className="outage-error">{o.error ?? ''}</td>
+      <td className="outage-error" data-label="Error">
+        {o.error ? (
+          <details>
+            <summary>{errorSummary(o.error)}</summary>
+            <code>{o.error}</code>
+          </details>
+        ) : (
+          <span className="hint">—</span>
+        )}
+      </td>
     </tr>
   )
 }
@@ -93,7 +111,12 @@ export default function Outages({ onAuthError }: { onAuthError: (err: unknown) =
       <div className="controls">
         <div className="control-group" role="group" aria-label="Window">
           {WINDOWS.map((w) => (
-            <button key={w} className={win === w ? 'active' : ''} onClick={() => setWin(w)}>
+            <button
+              key={w}
+              className={win === w ? 'active' : ''}
+              aria-pressed={win === w}
+              onClick={() => setWin(w)}
+            >
               {w}
             </button>
           ))}

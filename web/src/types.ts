@@ -40,6 +40,9 @@ export interface MatrixProbe {
   type: string
   status: string
   latency_us: number | null
+  latency_source: string
+  loss_pct: number | null
+  as_of: string
 }
 
 export interface MatrixCell {
@@ -83,6 +86,7 @@ export interface DirectionSummary {
   jitter_avg_us: number | null
   tcp_connect_avg_us: number | null
   tls_handshake_avg_us: number | null
+  checks: MatrixProbe[]
 }
 
 export interface PairResponse {
@@ -114,8 +118,8 @@ export interface SeriesResponse {
   resolution_s: number
   source: SeriesSource
   latency_source: string
-  a_to_b: { points: SeriesPoint[] }
-  b_to_a: { points: SeriesPoint[] }
+  a_to_b: { latency_source: string; points: SeriesPoint[] }
+  b_to_a: { latency_source: string; points: SeriesPoint[] }
 }
 
 export interface OutageEvent {
