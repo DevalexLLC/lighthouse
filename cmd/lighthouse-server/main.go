@@ -18,6 +18,7 @@ import (
 	"github.com/devalexllc/lighthouse/internal/server/ca"
 	"github.com/devalexllc/lighthouse/internal/server/config"
 	"github.com/devalexllc/lighthouse/internal/server/migrate"
+	"github.com/devalexllc/lighthouse/internal/server/seed"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 	"github.com/devalexllc/lighthouse/internal/version"
 )
@@ -39,6 +40,8 @@ Usage:
                                                      manage full-mesh site groups
   lighthouse-server user add --config <file> --username <name> [--admin]
                                                      create a dashboard user
+  lighthouse-server seed --config <file> [--days 90]
+                                                     load synthetic probe history (dev/gate)
   lighthouse-server version                          print version and exit
 `
 
@@ -65,6 +68,8 @@ func main() {
 		err = cmdMesh(os.Args[2:])
 	case "user":
 		err = cmdUser(os.Args[2:])
+	case "seed":
+		err = cmdSeed(os.Args[2:])
 	case "version", "--version":
 		fmt.Println("lighthouse-server", version.String())
 		return
@@ -191,6 +196,29 @@ on the agent host:
       --fingerprint sha256:%s
 `, *site, *ttl, token, token, authority.Fingerprint())
 	return nil
+}
+
+// cmdSeed loads synthetic history for the aggregate/percentile pipeline.
+// Dev/gate tooling: it needs enrolled agents and runs inside the compose
+// network (the DB is not host-exposed).
+func cmdSeed(args []string) error {
+	fs := flag.NewFlagSet("seed", flag.ExitOnError)
+	days := fs.Int("days", 90, "days of synthetic history to load")
+	cfg, err := loadConfig(fs, args)
+	if err != nil {
+		return err
+	}
+	if *days < 1 || *days > 400 {
+		return fmt.Errorf("--days must be between 1 and 400 (daily retention)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	st, err := store.Connect(ctx, cfg.DB.URL, cfg.DB.ConnectTimeout)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return seed.Run(ctx, st.Pool(), *days, os.Stdout)
 }
 
 func setupLogging(level string) {

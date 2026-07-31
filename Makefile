@@ -16,7 +16,7 @@ COMPOSE_DEV  = deploy/compose-dev/docker-compose.dev.yml
 # alone silently removes overlay services (fake agents, their enrollment state).
 COMPOSE      = docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_DEV)
 
-.PHONY: all build server agent test lint vet proto web vendor up down logs ps clean
+.PHONY: all build server agent test lint vet proto web vendor up down logs ps seed clean
 
 all: build
 
@@ -63,6 +63,11 @@ logs:
 
 ps:
 	$(COMPOSE) ps
+
+# Load 90 days of synthetic probe history for the aggregate/percentile
+# pipeline (M5 gate). Needs the dev stack up with agents enrolled.
+seed:
+	$(COMPOSE) exec -T server lighthouse-server seed --config /etc/lighthouse/server.yaml --days 90
 
 clean:
 	rm -rf bin/
