@@ -66,7 +66,7 @@ export default function App() {
   if (!booted) {
     return (
       <div className="boot-state" role="status">
-        <span className="beacon" aria-hidden="true" />
+        <img className="logo-mark logo-mark-boot" src="/lighthouse-mark.svg" alt="" />
         Loading Lighthouse…
       </div>
     )
@@ -86,7 +86,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <a className="brand" href="#/">
-          <span className="beacon" aria-hidden="true" />
+          <img className="logo-mark logo-mark-header" src="/lighthouse-mark.svg" alt="" />
           Lighthouse
         </a>
         <nav className="topnav" aria-label="Views">

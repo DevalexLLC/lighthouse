@@ -118,13 +118,19 @@ body {
   letter-spacing: 0.01em;
 }
 
-.beacon {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #ffe9a8, #e8b93b 60%, #9a7514);
-  box-shadow: 0 0 8px 1px color-mix(in srgb, #e8b93b 55%, transparent);
+.logo-mark {
+  display: block;
   flex: none;
+}
+
+.logo-mark-header {
+  width: 24px;
+  height: 24px;
+}
+
+.logo-mark-boot {
+  width: 28px;
+  height: 28px;
 }
 
 .topbar-right {
@@ -209,18 +215,18 @@ button.linklike:hover {
   margin-bottom: 0.4rem;
 }
 
-.login-mark .beacon {
-  width: 18px;
-  height: 18px;
+.logo-mark-login {
+  width: 52px;
+  height: 52px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .login-mark .beacon {
-    animation: beacon-breathe 4s ease-in-out infinite;
+  .logo-mark-login {
+    animation: mark-breathe 4s ease-in-out infinite;
   }
-  @keyframes beacon-breathe {
-    0%, 100% { box-shadow: 0 0 8px 1px color-mix(in srgb, #e8b93b 45%, transparent); }
-    50% { box-shadow: 0 0 16px 4px color-mix(in srgb, #e8b93b 65%, transparent); }
+  @keyframes mark-breathe {
+    0%, 100% { filter: drop-shadow(0 0 2px color-mix(in srgb, #ffd166 35%, transparent)); }
+    50% { filter: drop-shadow(0 0 6px color-mix(in srgb, #ffd166 70%, transparent)); }
   }
 }
 

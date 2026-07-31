@@ -55,6 +55,9 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-07-31)
 
+- Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
+  the header, login page, loading state, and favicon; it has no runtime
+  network or font dependency.
 - M0 (scaffolding, strict config, compose stack) — done.
 - M1 (protos, CA, enrollment, mTLS session, revocation) — done; verified
   e2e in compose: enroll → connect through SNI proxy → last_seen updates →

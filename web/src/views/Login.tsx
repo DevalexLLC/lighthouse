@@ -33,7 +33,7 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit} aria-busy={busy}>
         <div className="login-mark">
-          <span className="beacon" aria-hidden="true" />
+          <img className="logo-mark logo-mark-login" src="/lighthouse-mark.svg" alt="" />
           <h1>Lighthouse</h1>
         </div>
         <p className="login-sub eyebrow">inter-site connectivity watch</p>
