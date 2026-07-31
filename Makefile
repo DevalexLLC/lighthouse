@@ -67,7 +67,7 @@ ps:
 # Load 90 days of synthetic probe history for the aggregate/percentile
 # pipeline (M5 gate). Needs the dev stack up with agents enrolled.
 seed:
-	$(COMPOSE) exec -T server lighthouse-server seed --config /etc/lighthouse/server.yaml --days 90
+	LIGHTHOUSE_DB_PASSWORD=$${LIGHTHOUSE_DB_PASSWORD:-lighthouse-dev} $(COMPOSE) exec -T server lighthouse-server seed --config /etc/lighthouse/server.yaml --days 90
 
 clean:
 	rm -rf bin/
