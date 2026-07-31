@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { apiGet } from '../api'
-import type { AgentsResponse, MatrixCell, MatrixResponse } from '../types'
+import ThresholdSettingsPanel from '../components/ThresholdSettings'
+import WorldMap from '../components/WorldMap'
+import type { AgentsResponse, MatrixCell, MatrixResponse, SettingsResponse } from '../types'
 import { fmtAgo, fmtLatency } from '../format'
 
 const POLL_MS = 30_000
@@ -53,19 +55,33 @@ function Cell({ cell }: { cell: MatrixCell }) {
   )
 }
 
-export default function Matrix({ onAuthError }: { onAuthError: (err: unknown) => void }) {
+export default function Matrix({
+  onAuthError,
+  isAdmin,
+}: {
+  onAuthError: (err: unknown) => void
+  isAdmin: boolean
+}) {
   const [data, setData] = useState<MatrixResponse | null>(null)
   const [agents, setAgents] = useState<AgentsResponse | null>(null)
+  const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let cancelled = false
     const load = () =>
-      Promise.all([apiGet<MatrixResponse>('/api/v1/matrix'), apiGet<AgentsResponse>('/api/v1/agents')])
-        .then(([m, a]) => {
+      // Settings ride the same poll, so another admin's change converges
+      // everywhere within one cycle.
+      Promise.all([
+        apiGet<MatrixResponse>('/api/v1/matrix'),
+        apiGet<AgentsResponse>('/api/v1/agents'),
+        apiGet<SettingsResponse>('/api/v1/settings'),
+      ])
+        .then(([m, a, s]) => {
           if (!cancelled) {
             setData(m)
             setAgents(a)
+            setSettings(s)
             setError('')
           }
         })
@@ -111,6 +127,23 @@ export default function Matrix({ onAuthError }: { onAuthError: (err: unknown) =>
               ),
           )}
         </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <span className="eyebrow">Site map</span>
+          <ThresholdSettingsPanel
+            settings={settings}
+            isAdmin={isAdmin}
+            onSaved={setSettings}
+            onAuthError={onAuthError}
+          />
+        </div>
+        <WorldMap
+          sites={sites}
+          cells={data.cells}
+          thresholds={settings ? settings.thresholds : null}
+        />
       </div>
 
       <div className="card">

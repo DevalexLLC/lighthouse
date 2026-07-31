@@ -27,6 +27,11 @@
   --status-down: #d03b3b;
   --status-stale: #8a897f;
 
+  /* Map severity: warn shares the degraded amber; crit sits between amber
+     and the down red so all four stay distinguishable on one line. */
+  --status-warn: var(--status-degraded);
+  --status-crit: #cf4a10;
+
   --status-ok-bg: color-mix(in srgb, #0ca30c 12%, var(--surface));
   --status-degraded-bg: color-mix(in srgb, #fab219 16%, var(--surface));
   --status-down-bg: color-mix(in srgb, #d03b3b 12%, var(--surface));
@@ -56,6 +61,7 @@
     --series-b: #d95926;
 
     --status-degraded: #fab219;
+    --status-crit: #f0692e;
 
     --status-ok-bg: color-mix(in srgb, #0ca30c 16%, var(--surface));
     --status-degraded-bg: color-mix(in srgb, #fab219 14%, var(--surface));
@@ -1255,5 +1261,291 @@ ol.hops li {
   .chart-card {
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+  }
+}
+
+/* ---- world map (Sightlines hero) ---- */
+
+.worldmap {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.map-ocean {
+  fill: transparent;
+}
+
+.map-land {
+  fill: var(--surface-2);
+  stroke: var(--border-strong);
+  stroke-width: 0.4;
+}
+
+/* Wide invisible twin of each line: the click/hover target. */
+.map-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 10;
+}
+
+.map-line {
+  fill: none;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  /* All lines flow — the motion is the "live" telegraph feel; severity
+     changes the dash rhythm, never color alone. */
+  stroke-dasharray: 12 6;
+  animation: map-flow 1.6s linear infinite;
+}
+
+.map-line.sev-ok {
+  stroke: var(--status-ok);
+  opacity: 0.55;
+}
+
+.map-line.sev-warn {
+  stroke: var(--status-warn);
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.map-line.sev-crit {
+  stroke: var(--status-crit);
+  stroke-width: 2.6;
+  opacity: 0.95;
+  animation-duration: 0.9s;
+}
+
+.map-line.sev-down {
+  stroke: var(--status-down);
+  stroke-width: 2.6;
+  stroke-dasharray: 7 5;
+  animation-duration: 0.9s;
+}
+
+.map-line.sev-stale {
+  stroke: var(--status-stale);
+  stroke-dasharray: 2 5;
+  animation: none; /* no data — nothing is flowing, don't pretend */
+}
+
+@keyframes map-flow {
+  to {
+    stroke-dashoffset: -36;
+  }
+}
+
+.worldmap a:hover .map-line,
+.worldmap a:focus-visible .map-line {
+  opacity: 1;
+  stroke-width: 3;
+}
+
+.worldmap a:focus-visible .map-line {
+  outline: none;
+  stroke: var(--focus);
+}
+
+/* Pinning a site foregrounds its links and fades the rest. */
+.worldmap.has-pin .map-line:not(.pinned) {
+  opacity: 0.15;
+}
+
+.worldmap.has-pin .map-site:not(.pinned) .map-label {
+  opacity: 0.35;
+}
+
+.map-site {
+  cursor: pointer;
+}
+
+.map-site:focus-visible {
+  outline: none;
+}
+
+.map-site:focus-visible .map-dot {
+  stroke: var(--focus);
+  stroke-width: 2;
+}
+
+.map-dot {
+  stroke: var(--surface);
+  stroke-width: 1.2;
+}
+
+.map-site.sev-ok .map-dot { fill: var(--status-ok); }
+.map-site.sev-warn .map-dot { fill: var(--status-warn); }
+.map-site.sev-crit .map-dot { fill: var(--status-crit); }
+.map-site.sev-down .map-dot { fill: var(--status-down); }
+.map-site.sev-stale .map-dot { fill: var(--status-stale); }
+
+.map-halo {
+  fill: none;
+  stroke-width: 1.5;
+  opacity: 0;
+}
+
+/* Crit/down dots pulse; SVG r is animatable in current engines. */
+.map-site.sev-crit .map-halo,
+.map-site.sev-down .map-halo {
+  animation: map-pulse 1.8s ease-out infinite;
+}
+
+.map-site.sev-crit .map-halo { stroke: var(--status-crit); }
+.map-site.sev-down .map-halo { stroke: var(--status-down); }
+
+@keyframes map-pulse {
+  0% {
+    r: 4.5;
+    opacity: 0.7;
+  }
+  100% {
+    r: 13;
+    opacity: 0;
+  }
+}
+
+.map-label {
+  font-family: var(--mono);
+  font-size: 7.5px;
+  fill: var(--ink-2);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 2px;
+  pointer-events: none;
+}
+
+.map-site.pinned .map-label {
+  fill: var(--ink);
+  font-weight: 700;
+}
+
+.map-empty {
+  padding: 0.4rem 0;
+}
+
+.map-missing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.swatch.sev-ok { background: var(--status-ok); }
+.swatch.sev-warn { background: var(--status-warn); }
+.swatch.sev-crit { background: var(--status-crit); }
+.swatch.sev-down { background: var(--status-down); }
+.swatch.sev-stale { background: var(--status-stale); }
+
+@media (prefers-reduced-motion: reduce) {
+  .map-line,
+  .map-halo {
+    animation: none;
+  }
+}
+
+/* ---- threshold settings panel ---- */
+
+.threshold-settings {
+  position: relative;
+}
+
+.threshold-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 10;
+  width: min(30rem, 86vw);
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.16);
+}
+
+.threshold-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem 1rem;
+}
+
+.threshold-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.threshold-input {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.threshold-input input {
+  width: 6rem;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.threshold-input input:disabled {
+  opacity: 0.6;
+}
+
+.threshold-input input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.threshold-errors {
+  margin: 0.6rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+
+.threshold-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.threshold-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.threshold-foot button.primary {
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.threshold-foot button.primary:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@media (max-width: 560px) {
+  .threshold-grid {
+    grid-template-columns: 1fr;
   }
 }

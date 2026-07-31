@@ -15,6 +15,10 @@ export interface Site {
   name: string
   display_name: string
   location: string
+  // null until an operator places the site (`lighthouse-server site set`);
+  // 0 is a real coordinate, so never truthiness-check these.
+  latitude: number | null
+  longitude: number | null
 }
 
 export interface SitesResponse {
@@ -69,6 +73,21 @@ export interface MatrixResponse {
   sites: Site[]
   cells: MatrixCell[]
   horizon_s: number
+}
+
+// Shared dashboard thresholds (GET/PUT /api/v1/settings). Latency is wire
+// microseconds; the settings form converts to ms at the edge.
+export interface ThresholdSettings {
+  latency_warn_us: number
+  latency_crit_us: number
+  loss_warn_pct: number
+  loss_crit_pct: number
+}
+
+export interface SettingsResponse {
+  thresholds: ThresholdSettings
+  updated_at: string
+  updated_by: string
 }
 
 // Which table served a windowed query. Raw windows (24h/7d) have no

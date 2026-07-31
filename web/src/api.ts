@@ -32,9 +32,9 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res.json()
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+async function apiSend<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
-    method: 'POST',
+    method,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -44,4 +44,12 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   })
   if (!res.ok) throw await parseError(res)
   return res.json()
+}
+
+export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return apiSend('POST', path, body)
+}
+
+export function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return apiSend('PUT', path, body)
 }

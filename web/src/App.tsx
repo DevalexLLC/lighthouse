@@ -133,7 +133,7 @@ export default function App() {
       </header>
       <main>
         {route.view === 'matrix' ? (
-          <Matrix onAuthError={onAuthError} />
+          <Matrix onAuthError={onAuthError} isAdmin={user.role === 'admin'} />
         ) : route.view === 'pair' ? (
           <PairDetail a={route.a} b={route.b} onAuthError={onAuthError} />
         ) : route.view === 'outages' ? (

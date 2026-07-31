@@ -55,6 +55,30 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-07-31)
 
+- Sightlines world map: the `#/` view leads with an SVG world map — site
+  dots at `sites.latitude/longitude` (nullable, both-or-neither CHECK; set
+  via the new `lighthouse-server site list|set` CLI, never at enrollment;
+  unplaced sites render in a fail-loud chip strip, never vanish) and one
+  animated line per site pair, colored by a client-side severity fold
+  (`web/src/severity.ts`: status first — down/stale can't look healthy —
+  then shared warn/crit thresholds on the cell's headline latency/loss;
+  rank ok<warn<stale<crit<down). Thresholds live in the single-row
+  `dashboard_settings` table, served by `GET /api/v1/settings` (any
+  session) and `PUT /api/v1/settings` — the first `requireRole("admin")`
+  endpoint (withSession outermost; CSRF applies) — and are edited from a
+  panel on the map card (ms/% form, mirrors server validation; server
+  names every problem, `DisallowUnknownFields`). Settings ride the
+  existing 30 s matrix poll, so other browsers converge ≤30 s. The world
+  outline is vendored: `web/src/assets/worldPath.ts` (~28 KB, Natural
+  Earth 110m land, pre-projected equirectangular 720×300, Antarctica
+  cropped) regenerated only by `web/tools/build-world-path.mjs` (dev
+  tooling, documented in its header; nothing fetched at build or
+  runtime). Schema landed by editing 0001/0003 in place (pre-release
+  convention) — existing dev DBs need `down -v`. Verified on a fresh
+  compose stack through the proxy: CLI set/list + typo/range errors,
+  settings round-trip/validation/403 viewer/401 anon, coords in
+  sites+matrix payloads, defaults restored; browser-visual map pass
+  happens on a machine with a browser.
 - Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
   the header, login page, loading state, and favicon; it has no runtime
   network or font dependency. Nav views are themed: Sightlines (site
