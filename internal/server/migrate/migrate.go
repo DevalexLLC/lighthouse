@@ -1,6 +1,15 @@
 // Package migrate applies embedded SQL migrations in filename order.
 // Each migration runs in its own transaction and is recorded in
 // schema_migrations; a partially applied file therefore never half-commits.
+//
+// Files named NNNN_name.notx.sql are the exception: they run outside any
+// transaction, for DDL PostgreSQL refuses inside a transaction block
+// (continuous aggregate creation). A notx file must contain exactly one
+// top-level statement — a multi-statement simple-query message gets an
+// implicit transaction, which TimescaleDB rejects the same way — and must
+// be idempotent (IF NOT EXISTS), because recording it in schema_migrations
+// is a separate autocommit statement and a crash between the two must
+// converge on re-run.
 package migrate
 
 import (
@@ -8,6 +17,7 @@ import (
 	"embed"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -93,6 +103,17 @@ func Apply(ctx context.Context, conn *pgx.Conn) error {
 		sql, err := migrations.ReadFile("sql/" + name)
 		if err != nil {
 			return fmt.Errorf("migrate: read %s: %w", name, err)
+		}
+		if strings.HasSuffix(name, ".notx.sql") {
+			if _, err := conn.Exec(ctx, string(sql)); err != nil {
+				return fmt.Errorf("migrate: apply %s: %w", name, err)
+			}
+			if _, err := conn.Exec(ctx,
+				`INSERT INTO schema_migrations (filename) VALUES ($1)`, name); err != nil {
+				return fmt.Errorf("migrate: record %s: %w", name, err)
+			}
+			fmt.Printf("migrate: applied %s (no transaction)\n", name)
+			continue
 		}
 		tx, err := conn.Begin(ctx)
 		if err != nil {

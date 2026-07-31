@@ -1,0 +1,57 @@
+package migrate
+
+import (
+	"strings"
+	"testing"
+)
+
+// Notx migrations run as a single autocommit Exec; a second statement in the
+// same file would resurrect the implicit transaction TimescaleDB rejects for
+// continuous aggregate creation, and non-idempotent DDL would break the
+// re-run after a crash between the DDL and its schema_migrations record.
+// This test pins both invariants for every embedded .notx.sql file.
+func TestNotxMigrationsAreSingleIdempotentStatements(t *testing.T) {
+	names, err := embeddedNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawNotx := false
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".notx.sql") {
+			continue
+		}
+		sawNotx = true
+		raw, err := migrations.ReadFile("sql/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sql := stripLineComments(string(raw))
+		if got := strings.Count(sql, ";"); got != 1 {
+			t.Errorf("%s: want exactly 1 statement (1 semicolon outside comments), got %d", name, got)
+		}
+		if !strings.HasSuffix(strings.TrimSpace(sql), ";") {
+			t.Errorf("%s: content after the final semicolon", name)
+		}
+		if !strings.Contains(sql, "IF NOT EXISTS") {
+			t.Errorf("%s: notx statements must be idempotent (IF NOT EXISTS)", name)
+		}
+	}
+	if !sawNotx {
+		t.Skip("no .notx.sql migrations embedded")
+	}
+}
+
+// stripLineComments removes -- comments. The notx files use neither string
+// literals containing "--" nor dollar quoting, so line-level stripping is
+// sufficient; keep it that way.
+func stripLineComments(sql string) string {
+	var b strings.Builder
+	for line := range strings.SplitSeq(sql, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
