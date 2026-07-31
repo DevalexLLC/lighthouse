@@ -100,6 +100,106 @@ func adminStore(cfg config.Config) (*store.Store, context.Context, context.Cance
 	return st, ctx, cancel, nil
 }
 
+// validateCoords rejects out-of-range map positions.
+func validateCoords(lat, lon float64) error {
+	if lat < -90 || lat > 90 {
+		return fmt.Errorf("--lat must be between -90 and 90, got %g", lat)
+	}
+	if lon < -180 || lon > 180 {
+		return fmt.Errorf("--lon must be between -180 and 180, got %g", lon)
+	}
+	return nil
+}
+
+func cmdSite(args []string) error {
+	const use = "usage: lighthouse-server site list|set ..."
+	if len(args) < 1 {
+		return fmt.Errorf(use)
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("site list", flag.ExitOnError)
+		cfg, err := loadConfig(fs, args[1:])
+		if err != nil {
+			return err
+		}
+		st, ctx, cancel, err := adminStore(cfg)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer st.Close()
+		sites, err := st.ListSites(ctx)
+		if err != nil {
+			return err
+		}
+		if len(sites) == 0 {
+			fmt.Println("no sites")
+			return nil
+		}
+		fmt.Printf("%-16s  %-20s  %-9s  %-9s  %s\n", "NAME", "DISPLAY", "LAT", "LON", "LOCATION")
+		for _, s := range sites {
+			lat, lon := "—", "—"
+			if s.Latitude != nil {
+				lat = fmt.Sprintf("%.4f", *s.Latitude)
+				lon = fmt.Sprintf("%.4f", *s.Longitude)
+			}
+			fmt.Printf("%-16s  %-20s  %-9s  %-9s  %s\n", s.Name, s.DisplayName, lat, lon, s.Location)
+		}
+		return nil
+
+	case "set":
+		fs := flag.NewFlagSet("site set", flag.ExitOnError)
+		name := fs.String("name", "", "site name (must already exist)")
+		lat := fs.Float64("lat", 0, "latitude in degrees (-90..90), with --lon")
+		lon := fs.Float64("lon", 0, "longitude in degrees (-180..180), with --lat")
+		display := fs.String("display-name", "", "human-friendly site name")
+		location := fs.String("location", "", "free-text location label")
+		cfg, err := loadConfig(fs, args[1:])
+		if err != nil {
+			return err
+		}
+		// 0,0 is a real coordinate (off Ghana), so presence is tracked per
+		// flag rather than compared against the default value.
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		if *name == "" {
+			return fmt.Errorf("--name is required")
+		}
+		if set["lat"] != set["lon"] {
+			return fmt.Errorf("--lat and --lon must be given together")
+		}
+		if !set["lat"] && !set["display-name"] && !set["location"] {
+			return fmt.Errorf("nothing to set: give --lat/--lon, --display-name, or --location")
+		}
+		var up store.SiteUpdate
+		if set["lat"] {
+			if err := validateCoords(*lat, *lon); err != nil {
+				return err
+			}
+			up.Latitude, up.Longitude = lat, lon
+		}
+		if set["display-name"] {
+			up.DisplayName = display
+		}
+		if set["location"] {
+			up.Location = location
+		}
+		st, ctx, cancel, err := adminStore(cfg)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer st.Close()
+		if err := st.UpdateSite(ctx, *name, up); err != nil {
+			return err
+		}
+		fmt.Printf("site %q updated\n", *name)
+		return nil
+	}
+	return fmt.Errorf("unknown site subcommand %q\n%s", args[0], use)
+}
+
 func cmdTarget(args []string) error {
 	const use = "usage: lighthouse-server target add|list|rm ..."
 	if len(args) < 1 {

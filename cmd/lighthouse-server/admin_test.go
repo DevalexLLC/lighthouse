@@ -51,6 +51,29 @@ func TestParseProbeType(t *testing.T) {
 	}
 }
 
+func TestValidateCoords(t *testing.T) {
+	cases := []struct {
+		name     string
+		lat, lon float64
+		wantErr  bool
+	}{
+		{"origin is a real coordinate", 0, 0, false},
+		{"london", 51.5074, -0.1278, false},
+		{"poles and date line", 90, 180, false},
+		{"negative extremes", -90, -180, false},
+		{"lat too high", 90.01, 0, true},
+		{"lat too low", -90.01, 0, true},
+		{"lon too high", 0, 180.01, true},
+		{"lon too low", 0, -180.01, true},
+	}
+	for _, c := range cases {
+		err := validateCoords(c.lat, c.lon)
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: validateCoords(%g, %g) = %v, wantErr=%v", c.name, c.lat, c.lon, err, c.wantErr)
+		}
+	}
+}
+
 func TestValidateTrain(t *testing.T) {
 	cases := []struct {
 		name    string

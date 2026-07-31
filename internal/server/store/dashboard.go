@@ -91,12 +91,16 @@ func (s Source) table() string {
 	}
 }
 
-// SiteInfo is a sites row as shown by the dashboard.
+// SiteInfo is a sites row as shown by the dashboard. Latitude/Longitude are
+// nil until an operator places the site on the map (`site set`); the DB
+// enforces both-or-neither.
 type SiteInfo struct {
 	ID          uuid.UUID
 	Name        string
 	DisplayName string
 	Location    string
+	Latitude    *float64
+	Longitude   *float64
 }
 
 // AgentListInfo is an agents row joined with its site name plus the health
@@ -188,7 +192,7 @@ type PairSummaryRow struct {
 // ListSites returns all sites ordered by name.
 func (s *Store) ListSites(ctx context.Context) ([]SiteInfo, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, display_name, location FROM sites ORDER BY name`)
+		`SELECT id, name, display_name, location, latitude, longitude FROM sites ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list sites: %w", err)
 	}
@@ -196,7 +200,7 @@ func (s *Store) ListSites(ctx context.Context) ([]SiteInfo, error) {
 	var out []SiteInfo
 	for rows.Next() {
 		var si SiteInfo
-		if err := rows.Scan(&si.ID, &si.Name, &si.DisplayName, &si.Location); err != nil {
+		if err := rows.Scan(&si.ID, &si.Name, &si.DisplayName, &si.Location, &si.Latitude, &si.Longitude); err != nil {
 			return nil, fmt.Errorf("list sites: %w", err)
 		}
 		out = append(out, si)
@@ -329,8 +333,8 @@ func (s *Store) ExpectedPairs(ctx context.Context) ([]SitePair, error) {
 func (s *Store) SiteEndpoints(ctx context.Context, siteName string) (*SiteEndpoints, error) {
 	var ep SiteEndpoints
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, display_name, location FROM sites WHERE name = $1`, siteName).
-		Scan(&ep.ID, &ep.Name, &ep.DisplayName, &ep.Location)
+		`SELECT id, name, display_name, location, latitude, longitude FROM sites WHERE name = $1`, siteName).
+		Scan(&ep.ID, &ep.Name, &ep.DisplayName, &ep.Location, &ep.Latitude, &ep.Longitude)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}

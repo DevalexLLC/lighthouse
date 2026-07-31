@@ -168,8 +168,9 @@ func (a *api) withSession(next http.HandlerFunc) http.Handler {
 	})
 }
 
-// requireRole guards a handler behind a role. M3 has no admin-only
-// endpoints yet; M4's admin CRUD mounts behind requireRole("admin").
+// requireRole guards a handler behind a role; PUT /api/v1/settings mounts
+// behind requireRole("admin"). Compose inside withSession — it reads the
+// session context withSession populates.
 func requireRole(role string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s := sessionFrom(r.Context()); s == nil || s.Role != role {

@@ -5,7 +5,14 @@ CREATE TABLE sites (
     name         text NOT NULL UNIQUE,
     display_name text NOT NULL DEFAULT '',
     location     text NOT NULL DEFAULT '',
-    created_at   timestamptz NOT NULL DEFAULT now()
+    -- Map position, set via `lighthouse-server site set` (never at
+    -- enrollment). Both set or both NULL; NULL = not placed on the map.
+    latitude     double precision,
+    longitude    double precision,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CHECK ((latitude IS NULL) = (longitude IS NULL)),
+    CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
+    CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180)
 );
 
 CREATE TABLE agents (

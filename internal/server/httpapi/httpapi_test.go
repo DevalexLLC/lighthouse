@@ -26,7 +26,9 @@ type fakeDB struct {
 	sessions  map[string]*store.SessionInfo // key: string(token_hash)
 	outages   []store.OutageInfo
 	agents    []store.AgentListInfo
+	sites     []store.SiteInfo
 	endpoints map[string]*store.SiteEndpoints
+	settings  *store.ThresholdSettings
 
 	pairSummary          *store.PairSummaryRow
 	pairSeries           []store.SeriesBucket
@@ -86,7 +88,7 @@ func (f *fakeDB) DeleteSessionByTokenHash(_ context.Context, tokenHash []byte) e
 
 func (f *fakeDB) DeleteExpiredSessions(_ context.Context) (int64, error) { return 0, nil }
 
-func (f *fakeDB) ListSites(_ context.Context) ([]store.SiteInfo, error) { return nil, nil }
+func (f *fakeDB) ListSites(_ context.Context) ([]store.SiteInfo, error) { return f.sites, nil }
 func (f *fakeDB) ListAgents(_ context.Context) ([]store.AgentListInfo, error) {
 	return f.agents, nil
 }
@@ -117,6 +119,21 @@ func (f *fakeDB) PairLatencySource(_ context.Context, srcAgents, _ []uuid.UUID, 
 }
 func (f *fakeDB) DirectionLatest(_ context.Context, _, _ []uuid.UUID, _ time.Duration) ([]store.MatrixRow, error) {
 	return f.directionLatest, nil
+}
+func (f *fakeDB) GetSettings(_ context.Context) (*store.ThresholdSettings, error) {
+	if f.settings == nil {
+		// Mirrors the migration-seeded defaults.
+		return &store.ThresholdSettings{
+			LatencyWarnUS: 100000, LatencyCritUS: 250000,
+			LossWarnPct: 1, LossCritPct: 5,
+		}, nil
+	}
+	return f.settings, nil
+}
+func (f *fakeDB) UpdateSettings(_ context.Context, ts store.ThresholdSettings) (*store.ThresholdSettings, error) {
+	ts.UpdatedAt = time.Now()
+	f.settings = &ts
+	return f.settings, nil
 }
 func (f *fakeDB) ListOutages(_ context.Context, _ time.Duration) ([]store.OutageInfo, error) {
 	return f.outages, nil

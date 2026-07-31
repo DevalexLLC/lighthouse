@@ -35,6 +35,9 @@ type DB interface {
 	PairLatencySource(ctx context.Context, srcAgents, dstTargets []uuid.UUID, window time.Duration, source store.Source) (string, error)
 	DirectionLatest(ctx context.Context, srcAgents, dstTargets []uuid.UUID, horizon time.Duration) ([]store.MatrixRow, error)
 
+	GetSettings(ctx context.Context) (*store.ThresholdSettings, error)
+	UpdateSettings(ctx context.Context, ts store.ThresholdSettings) (*store.ThresholdSettings, error)
+
 	ListOutages(ctx context.Context, window time.Duration) ([]store.OutageInfo, error)
 	ListPathEvents(ctx context.Context, window time.Duration) ([]store.PathEventInfo, error)
 	CurrentPaths(ctx context.Context, srcAgents, dstTargets []uuid.UUID) ([]store.CurrentPath, error)
@@ -72,6 +75,11 @@ func New(sdb DB, static fs.FS) http.Handler {
 	mux.Handle("GET /api/v1/sites", a.withSession(a.handleSites))
 	mux.Handle("GET /api/v1/agents", a.withSession(a.handleAgents))
 	mux.Handle("GET /api/v1/matrix", a.withSession(a.handleMatrix))
+	mux.Handle("GET /api/v1/settings", a.withSession(a.handleSettingsGet))
+	// withSession outermost: it populates the session context requireRole
+	// reads and enforces CSRF on the mutating method.
+	mux.Handle("PUT /api/v1/settings",
+		a.withSession(requireRole("admin", http.HandlerFunc(a.handleSettingsPut)).ServeHTTP))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}", a.withSession(a.handlePair))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}/series", a.withSession(a.handleSeries))
 	mux.Handle("GET /api/v1/outages", a.withSession(a.handleOutages))

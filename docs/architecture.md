@@ -81,7 +81,7 @@ Config delivery: server streams **full snapshots** (not diffs); agent diffs loca
 
 ## TimescaleDB schema
 
-Relational tables: `sites`, `agents` (incl. `probe_address` peers should target, `last_seen_at`), `targets` (kind `agent`|`external`), `probe_configs`, `mesh_groups` + `mesh_members`, `join_tokens` (sha256 hash, single-use, expiring), `certificates` (serial, revoked_at), `users` (argon2id) + `sessions`, `outage_events`, `series_state` (hysteresis counters, restart-durable), `path_events`, `traceroute_current`.
+Relational tables: `sites` (incl. optional `latitude`/`longitude` map coordinates, set via `site set`, both-or-neither), `agents` (incl. `probe_address` peers should target, `last_seen_at`), `targets` (kind `agent`|`external`), `probe_configs`, `mesh_groups` + `mesh_members`, `join_tokens` (sha256 hash, single-use, expiring), `certificates` (serial, revoked_at), `users` (argon2id) + `sessions`, `dashboard_settings` (single row: shared latency/loss warn+crit thresholds for the map), `outage_events`, `series_state` (hysteresis counters, restart-durable), `path_events`, `traceroute_current`.
 
 Raw hypertable `probe_results` (1-day chunks; narrow fixed-width columns: loss_pct, rtt min/avg/max/stddev µs, jitter, dns/tcp/tls/ttfb/total µs, plus one truncated `error` text — NULL on success — so failures are self-explanatory in the DB; traceroute hops go to `traceroute_current`/`path_events`, not the hypertable). Index `(agent_id, target_id, probe_type, time DESC)`; unique `(agent_id, probe_id, time)` so at-least-once spool replay dedupes on insert.
 
@@ -114,7 +114,7 @@ Continuous aggregates: `probe_results_hourly` (from raw: samples, ok_samples, su
 
 `/api/v1/*` JSON, separate from agent gRPC. **Auth: local users + PG-backed sessions** (argon2id, HttpOnly/Secure/SameSite cookie, CSRF token; roles `admin`/`viewer`; first admin via `lighthouse-server user add --admin`) — air-gap-safe and revocable, no OIDC dependency.
 
-Endpoints: auth (login/logout/me); `sites`, `agents`; `matrix` (site×site grid, per-direction status plus per-probe checks); `pairs/{a}/{b}?window=` (both directions: current checks, coherent min/avg/max/p50/p95/p99, loss, jitter, tcp/tls, last_ok_at); `pairs/{a}/{b}/series?metric=&window=7d|30d|90d|365d` (directional latency sources); `outages`; `path-events`; `traceroute/{src}/{dst}`; admin CRUD for probe-configs/targets/mesh-groups; join-token issue/list; cert revoke.
+Endpoints: auth (login/logout/me); `sites`, `agents` (sites carry `latitude`/`longitude`, null until placed); `matrix` (site×site grid, per-direction status plus per-probe checks); `settings` (GET any session, PUT admin-only: shared map thresholds); `pairs/{a}/{b}?window=` (both directions: current checks, coherent min/avg/max/p50/p95/p99, loss, jitter, tcp/tls, last_ok_at); `pairs/{a}/{b}/series?metric=&window=7d|30d|90d|365d` (directional latency sources); `outages`; `path-events`; `traceroute/{src}/{dst}`; admin CRUD for probe-configs/targets/mesh-groups; join-token issue/list; cert revoke.
 
 ## CA / cert lifecycle
 

@@ -33,6 +33,8 @@ Usage:
                                                      create the built-in CA
   lighthouse-server token create --config <file> --site <name> [--ttl 24h] [--quiet]
                                                      issue an agent join token
+  lighthouse-server site list|set --config <file> ...
+                                                     manage site metadata (map coordinates)
   lighthouse-server target add|list|rm --config <file> ...
                                                      manage external probe targets
   lighthouse-server probe add|list|rm --config <file> ...
@@ -61,6 +63,8 @@ func main() {
 		err = cmdCA(os.Args[2:])
 	case "token":
 		err = cmdToken(os.Args[2:])
+	case "site":
+		err = cmdSite(os.Args[2:])
 	case "target":
 		err = cmdTarget(os.Args[2:])
 	case "probe":

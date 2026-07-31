@@ -25,3 +25,21 @@ CREATE TABLE sessions (
     last_used_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX sessions_expires_idx ON sessions (expires_at);
+
+-- Shared dashboard settings: exactly one row (id is an always-true bool PK).
+-- Thresholds drive map dot/line severity; edited from the SPA by admins.
+-- The CHECKs mirror httpapi validation — hitting one from the API means a
+-- handler bug, and it should be loud.
+CREATE TABLE dashboard_settings (
+    id              boolean PRIMARY KEY DEFAULT true CHECK (id),
+    latency_warn_us bigint NOT NULL DEFAULT 100000,
+    latency_crit_us bigint NOT NULL DEFAULT 250000,
+    loss_warn_pct   double precision NOT NULL DEFAULT 1,
+    loss_crit_pct   double precision NOT NULL DEFAULT 5,
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    updated_by      text NOT NULL DEFAULT '',
+    CHECK (latency_warn_us > 0 AND latency_crit_us > latency_warn_us),
+    CHECK (loss_warn_pct >= 0 AND loss_crit_pct > loss_warn_pct AND loss_crit_pct <= 100)
+);
+-- Seeded here so GET never needs a missing-row branch and UPDATE always hits.
+INSERT INTO dashboard_settings DEFAULT VALUES;

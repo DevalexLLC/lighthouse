@@ -11,12 +11,19 @@ type siteJSON struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name"`
 	Location    string `json:"location"`
+	// null until the operator places the site (`site set`); the SPA must
+	// distinguish "not placed" from a real 0,0.
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
 }
 
 func toSiteJSON(sites []store.SiteInfo) []siteJSON {
 	out := make([]siteJSON, len(sites))
 	for i, s := range sites {
-		out[i] = siteJSON{Name: s.Name, DisplayName: s.DisplayName, Location: s.Location}
+		out[i] = siteJSON{
+			Name: s.Name, DisplayName: s.DisplayName, Location: s.Location,
+			Latitude: s.Latitude, Longitude: s.Longitude,
+		}
 	}
 	return out
 }
