@@ -52,6 +52,17 @@ func Run(ctx context.Context, cfg config.Config) error {
 			len(pending), pending)
 	}
 
+	// Percentiles are computed by TimescaleDB Toolkit (percentile_agg);
+	// migration 0005 creates the extension, but a hand-built database or a
+	// dropped extension must fail here, not on the first dashboard query.
+	toolkit, err := st.ToolkitInstalled(ctx)
+	if err != nil {
+		return fmt.Errorf("preflight: %w", err)
+	}
+	if !toolkit {
+		return fmt.Errorf("preflight: timescaledb_toolkit extension is not installed — percentiles require it; use the timescale/timescaledb-ha image (bundles it) or install the toolkit package, then run `lighthouse-server migrate`")
+	}
+
 	dashboardCert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 	if err != nil {
 		return fmt.Errorf("preflight: dashboard certificate (tls.cert_file/tls.key_file): %w", err)

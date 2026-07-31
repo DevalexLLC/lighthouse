@@ -36,6 +36,19 @@ func Connect(ctx context.Context, url string, timeout time.Duration) (*Store, er
 
 func (s *Store) Close() { s.pool.Close() }
 
+// ToolkitInstalled reports whether the timescaledb_toolkit extension is
+// present. Percentile queries depend on it, so serve preflight fails loud
+// when it is missing instead of erroring on the first dashboard request.
+func (s *Store) ToolkitInstalled(ctx context.Context) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'timescaledb_toolkit')`).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("toolkit check: %w", err)
+	}
+	return ok, nil
+}
+
 // Begin starts a transaction; the ingest path inserts results and advances
 // outage/path state atomically in one.
 func (s *Store) Begin(ctx context.Context) (pgx.Tx, error) { return s.pool.Begin(ctx) }
