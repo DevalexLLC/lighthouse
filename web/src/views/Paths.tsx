@@ -64,7 +64,9 @@ function EventRow({ e }: { e: PathEvent }) {
         <span className="hint" title={fmtTime(e.time)}>
           {fmtAgo(e.time)}
         </span>
-        <span className="hint">{expanded ? 'hide diff' : 'show diff'}</span>
+        <span className="path-toggle">
+          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span> {expanded ? 'hide diff' : 'show diff'}
+        </span>
       </button>
       {expanded && <HopDiff oldHops={e.old_hops} newHops={e.new_hops} />}
     </div>

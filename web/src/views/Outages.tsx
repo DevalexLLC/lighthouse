@@ -18,7 +18,7 @@ function fmtDuration(openedAt: string, closedAt: string | null): string {
 function Row({ o }: { o: OutageEvent }) {
   const open = o.closed_at == null
   return (
-    <tr className={open ? 'outage-open' : ''}>
+    <tr className={open ? 'outage-open' : 'outage-closed'}>
       <td>
         <span className={'kind-badge kind-' + o.kind}>
           {o.kind === 'agent_offline' ? 'agent offline' : 'probe failing'}
@@ -31,8 +31,9 @@ function Row({ o }: { o: OutageEvent }) {
       </td>
       <td className="mono">{o.probe_type ?? '—'}</td>
       <td title={fmtTime(o.opened_at)}>{fmtAgo(o.opened_at)}</td>
-      <td className={open ? 'status-text-down' : ''}>
-        {open ? 'open' : fmtDuration(o.opened_at, o.closed_at)}
+      <td className={'mono' + (open ? ' status-text-down' : '')}>
+        {fmtDuration(o.opened_at, o.closed_at)}
+        {open ? ' · open' : ''}
       </td>
       <td className="outage-error">{o.error ?? ''}</td>
     </tr>

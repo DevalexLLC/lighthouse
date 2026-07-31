@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type uPlot from 'uplot'
 import { apiGet } from '../api'
 import Chart from '../components/Chart'
-import { fmtAgo, fmtLatency, fmtTime, latencyAxisLabel } from '../format'
+import { fmtAgo, fmtLatency, fmtLatencyParts, fmtTime, latencyAxisLabel } from '../format'
 import type {
   CurrentPath,
   DirectionSummary,
@@ -62,7 +62,10 @@ function DirectionCard({
         </span>
       </h3>
       <div className="pair-headline">
-        <span className="big">{fmtLatency(s.latency.avg_us)}</span>
+        <span className="big">
+          {fmtLatencyParts(s.latency.avg_us).value}
+          <span className="unit"> {fmtLatencyParts(s.latency.avg_us).unit}</span>
+        </span>
         <span className="eyebrow">
           avg {latencyAxisLabel(s.latency_source).replace(' (ms)', '')}
         </span>
@@ -188,14 +191,19 @@ export default function PairDetail({
         grid: { stroke: c.grid, width: 1 },
         ticks: { stroke: c.grid, width: 1 },
       }
+      // Live-legend readouts: fixed decimals so values don't jitter in width.
+      const value =
+        metric === 'loss'
+          ? (_u: uPlot, v: number) => (v == null ? '—' : `${v.toFixed(1)}%`)
+          : (_u: uPlot, v: number) => (v == null ? '—' : v.toFixed(3))
       const series: uPlot.Series[] =
         metric === 'loss'
-          ? [{}, { label: 'loss %', stroke, width: 2, spanGaps: false }]
+          ? [{}, { label: 'loss %', stroke, width: 2, spanGaps: false, value }]
           : [
               {},
-              { label: 'avg', stroke, width: 2, spanGaps: false },
-              { label: 'min', stroke, width: 1, alpha: 0.4, spanGaps: false },
-              { label: 'max', stroke, width: 1, alpha: 0.4, spanGaps: false },
+              { label: 'avg', stroke, width: 2, spanGaps: false, value },
+              { label: 'min', stroke, width: 1, alpha: 0.4, spanGaps: false, value },
+              { label: 'max', stroke, width: 1, alpha: 0.4, spanGaps: false, value },
             ]
       return {
         height: 230,

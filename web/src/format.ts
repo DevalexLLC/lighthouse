@@ -1,10 +1,17 @@
 // Human formatting for wire microseconds and timestamps.
 
+// Value/unit split so headlines can typeset the unit smaller than the number.
+export function fmtLatencyParts(us: number | null | undefined): { value: string; unit: string } {
+  if (us == null) return { value: '—', unit: '' }
+  const rounded = Math.round(us)
+  if (rounded < 1000) return { value: `${rounded}`, unit: 'µs' }
+  if (us < 1_000_000) return { value: (us / 1000).toFixed(us < 10_000 ? 2 : 1), unit: 'ms' }
+  return { value: (us / 1_000_000).toFixed(2), unit: 's' }
+}
+
 export function fmtLatency(us: number | null | undefined): string {
-  if (us == null) return '—'
-  if (us < 1000) return `${us} µs`
-  if (us < 1_000_000) return `${(us / 1000).toFixed(us < 10_000 ? 2 : 1)} ms`
-  return `${(us / 1_000_000).toFixed(2)} s`
+  const p = fmtLatencyParts(us)
+  return p.unit ? `${p.value} ${p.unit}` : p.value
 }
 
 export function fmtTime(iso: string | null | undefined): string {

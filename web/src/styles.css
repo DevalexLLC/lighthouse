@@ -329,7 +329,8 @@ button.linklike:hover {
   margin-bottom: 0.9rem;
 }
 
-.card-head .hint {
+/* Secondary metadata (timestamps, cadence notes) everywhere, not just cards. */
+.hint {
   color: var(--ink-3);
   font-size: 0.8rem;
 }
@@ -576,6 +577,12 @@ table.agents tr:last-child td {
   line-height: 1;
 }
 
+.pair-headline .big .unit {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
 .pair-card dl {
   margin: 0;
   display: grid;
@@ -726,6 +733,20 @@ tr.outage-open td {
   border-color: var(--status-degraded);
 }
 
+/* Resolved outages are history, not alarms: quiet the badge and the row. */
+tr.outage-closed .kind-badge {
+  color: var(--ink-3);
+  border-color: var(--border-strong);
+}
+
+tr.outage-closed td {
+  color: var(--ink-2);
+}
+
+tr.outage-closed .outage-error {
+  color: var(--ink-3);
+}
+
 .outage-error {
   color: var(--ink-3);
   font-family: var(--mono);
@@ -773,8 +794,11 @@ tr.outage-open td {
   background: var(--surface-2);
 }
 
-.path-event-head .hint:last-child {
+.path-toggle {
   margin-left: auto;
+  color: var(--accent);
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 table.hop-diff {
