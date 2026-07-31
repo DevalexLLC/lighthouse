@@ -92,8 +92,8 @@ Full design + milestone plan: `docs/architecture.md`.
 - M5 (Toolkit percentiles, hourly/daily continuous aggregates, retention
   policies, window→source resolution, p50/p95/p99 + jitter/tcp/tls in the
   pair API and SPA, `.notx.sql` migration escape hatch, `make seed`) —
-  done; gate verified in compose: fresh stack auto-migrated 0005–0008
-  (caggs applied outside transactions); `make seed` loaded 90 d ×
+  done; gate verified in compose: fresh stack auto-migrated 0005–0010
+  (caggs and backfills applied outside transactions); `make seed` loaded 90 d ×
   6 directions (777 600 rows) in ~10 s and printed exact empirical
   percentiles; 90 d pair + series answered in 30–60 ms (≪500 ms) with
   `source: hourly`, EXPLAIN showing `_materialized_hypertable` chunk
@@ -223,6 +223,18 @@ Full design + milestone plan: `docs/architecture.md`.
   retention 14 d (refresh never reads a dropped region); daily 10 d >
   hourly's window. Both caggs are `materialized_only = false`, so the
   un-refreshed tail is served live — correct before the first refresh.
+- Migration ORDER is load-bearing: 0008/0009 do a one-time
+  `refresh_continuous_aggregate` backfill over the last 400 d (the longest
+  retained horizon; the hourly backfill uses 400 d, not its own 100 d,
+  because it feeds the daily one) and MUST precede the policies (0010).
+  Real-time aggregation only unions data above the materialization
+  watermark, so on an upgrade with pre-existing history the bounded policy
+  refresh would otherwise advance the watermark past everything older than
+  8 d — instantly hiding it — and raw retention would then delete it
+  unrecoverably (policy jobs fire within ~a minute of creation, verified).
+  Backfills can be slow on big upgrades: `migrate --timeout` (default
+  30 m) raises the deadline — an over-deadline backfill restarts from
+  scratch on every retry and would never complete.
 - `make seed` → `lighthouse-server seed` (runs inside compose; DB is not
   host-exposed): deterministic per-pair history (seeded RNG, diurnal +
   long-tail noise, scripted outages), seed-owned UUIDv5 probe IDs so

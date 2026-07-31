@@ -29,11 +29,22 @@ func TestNotxMigrationsAreSingleIdempotentStatements(t *testing.T) {
 		if got := strings.Count(sql, ";"); got != 1 {
 			t.Errorf("%s: want exactly 1 statement (1 semicolon outside comments), got %d", name, got)
 		}
-		if !strings.HasSuffix(strings.TrimSpace(sql), ";") {
+		stmt := strings.TrimSpace(sql)
+		if !strings.HasSuffix(stmt, ";") {
 			t.Errorf("%s: content after the final semicolon", name)
 		}
-		if !strings.Contains(sql, "IF NOT EXISTS") {
-			t.Errorf("%s: notx statements must be idempotent (IF NOT EXISTS)", name)
+		// Idempotency is per statement shape: CREATE needs IF NOT EXISTS;
+		// refresh recomputes the same buckets, so a re-run converges. Any
+		// other shape must prove itself here before it ships.
+		switch {
+		case strings.HasPrefix(stmt, "CREATE"):
+			if !strings.Contains(stmt, "IF NOT EXISTS") {
+				t.Errorf("%s: CREATE in a notx file must use IF NOT EXISTS", name)
+			}
+		case strings.HasPrefix(stmt, "CALL refresh_continuous_aggregate"):
+			// naturally idempotent
+		default:
+			t.Errorf("%s: unrecognized notx statement shape — prove it is idempotent and extend this test", name)
 		}
 	}
 	if !sawNotx {

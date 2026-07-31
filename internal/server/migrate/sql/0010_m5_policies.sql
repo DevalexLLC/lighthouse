@@ -2,6 +2,10 @@
 -- run fine inside this file's transaction; if_not_exists keeps re-runs
 -- convergent should this file ever race a partial apply.
 --
+-- MUST come after the 0008/0009 backfills: creating retention before the
+-- full-history materialization would let the retention job delete raw rows
+-- the bounded refresh policy never rolls up.
+--
 -- Offset ordering is load-bearing:
 --   hourly start_offset (8d)  > agent spool max_age (7d) — late spool
 --                               replay still lands in a refreshable region;

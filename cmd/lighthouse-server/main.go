@@ -27,7 +27,8 @@ const usage = `lighthouse-server — Lighthouse control plane
 
 Usage:
   lighthouse-server serve   --config <file>          run the control plane
-  lighthouse-server migrate --config <file>          apply database migrations
+  lighthouse-server migrate --config <file> [--timeout 30m]
+                                                     apply database migrations
   lighthouse-server ca init --config <file> [--if-missing]
                                                      create the built-in CA
   lighthouse-server token create --config <file> --site <name> [--ttl 24h] [--quiet]
@@ -110,11 +111,16 @@ func cmdServe(args []string) error {
 
 func cmdMigrate(args []string) error {
 	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	// The M5 cagg backfills (0008/0009) recompute up to 400 d of history on
+	// upgrade; the default is generous, and a huge deployment can raise it
+	// (a single over-deadline backfill would otherwise restart from scratch
+	// on every retry, never completing).
+	timeout := fs.Duration("timeout", 30*time.Minute, "overall migration deadline")
 	cfg, err := loadConfig(fs, args)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	conn, err := pgx.Connect(ctx, cfg.DB.URL)
 	if err != nil {
