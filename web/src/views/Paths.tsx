@@ -128,7 +128,7 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
     }
   }, [win, onAuthError])
 
-  if (error && !data) return <p className="error">Failed to load path events: {error}</p>
+  if (error && !data) return <p className="error">Failed to load passages: {error}</p>
   if (!data) return <p className="muted">Loading…</p>
 
   return (
@@ -136,7 +136,7 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
       <div className="page-head">
         <div>
           <div className="eyebrow">Route watch</div>
-          <h2>Path changes</h2>
+          <h2>Passages</h2>
         </div>
         <div className="chips">
           <span className="chip">

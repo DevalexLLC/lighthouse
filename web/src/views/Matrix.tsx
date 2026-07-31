@@ -81,7 +81,7 @@ export default function Matrix({ onAuthError }: { onAuthError: (err: unknown) =>
     }
   }, [onAuthError])
 
-  if (error && !data) return <p className="error">Failed to load matrix: {error}</p>
+  if (error && !data) return <p className="error">Failed to load sightlines: {error}</p>
   if (!data) return <p className="muted">Loading…</p>
 
   const cellFor = new Map<string, MatrixCell>()
@@ -95,7 +95,7 @@ export default function Matrix({ onAuthError }: { onAuthError: (err: unknown) =>
       <div className="page-head">
         <div>
           <div className="eyebrow">Signal board</div>
-          <h2>Site matrix</h2>
+          <h2>Sightlines</h2>
         </div>
         <div className="chips">
           <span className="chip">

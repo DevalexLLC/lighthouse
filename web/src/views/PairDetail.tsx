@@ -391,7 +391,7 @@ export default function PairDetail({
         <div>
           <div className="eyebrow">Pair detail</div>
           <h2>
-            <a href="#/">Matrix</a> / {a} ⇄ {b}
+            <a href="#/">Sightlines</a> / {a} ⇄ {b}
           </h2>
         </div>
         <span className="sub">

@@ -95,7 +95,7 @@ export default function App() {
             className={route.view === 'matrix' || route.view === 'pair' ? 'active' : ''}
             aria-current={route.view === 'matrix' || route.view === 'pair' ? 'page' : undefined}
           >
-            Matrix
+            Sightlines
           </a>
           <a
             href="#/outages"
@@ -109,7 +109,7 @@ export default function App() {
             className={route.view === 'paths' ? 'active' : ''}
             aria-current={route.view === 'paths' ? 'page' : undefined}
           >
-            Paths
+            Passages
           </a>
         </nav>
         <div className="topbar-right">
