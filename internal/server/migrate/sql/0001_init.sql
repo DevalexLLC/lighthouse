@@ -18,6 +18,12 @@ CREATE TABLE agents (
     version             text NOT NULL DEFAULT '',
     last_seen_at        timestamptz,
     current_config_hash text NOT NULL DEFAULT '',
+    -- Running total of spooled results the agent reported losing to spool
+    -- bounds enforcement (dropped_since_last_push deltas; the agent clears
+    -- the counter only after an acknowledged push, so retried pushes may
+    -- overcount — this is an operator alarm signal, not accounting).
+    dropped_results     bigint NOT NULL DEFAULT 0,
+    last_dropped_at     timestamptz,
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX agents_site_idx ON agents (site_id);

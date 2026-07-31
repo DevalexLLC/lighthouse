@@ -25,6 +25,7 @@ type fakeDB struct {
 	users     map[string]*store.UserInfo
 	sessions  map[string]*store.SessionInfo // key: string(token_hash)
 	outages   []store.OutageInfo
+	agents    []store.AgentListInfo
 	endpoints map[string]*store.SiteEndpoints
 
 	pairSummary          *store.PairSummaryRow
@@ -87,7 +88,7 @@ func (f *fakeDB) DeleteExpiredSessions(_ context.Context) (int64, error) { retur
 
 func (f *fakeDB) ListSites(_ context.Context) ([]store.SiteInfo, error) { return nil, nil }
 func (f *fakeDB) ListAgents(_ context.Context) ([]store.AgentListInfo, error) {
-	return nil, nil
+	return f.agents, nil
 }
 func (f *fakeDB) MatrixLatest(_ context.Context, _ time.Duration) ([]store.MatrixRow, error) {
 	return nil, nil
@@ -430,8 +431,8 @@ func TestPairPercentilesAndSource(t *testing.T) {
 	checkLoss := float32(0)
 	f.directionLatest = []store.MatrixRow{{
 		ProbeType: int16(pb.ProbeType_PROBE_TYPE_ICMP),
-		Status: int16(pb.ProbeStatus_PROBE_STATUS_OK),
-		Time: time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC),
+		Status:    int16(pb.ProbeStatus_PROBE_STATUS_OK),
+		Time:      time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC),
 		LatencyUS: new(int64(1200)), LatencySource: "rtt", LossPct: &checkLoss,
 	}}
 	f.pairSeries = []store.SeriesBucket{
@@ -599,6 +600,40 @@ func TestEventsEndpoints(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "nowhere") {
 		t.Errorf("traceroute unknown site = %d %s, want 404 naming it", w.Code, w.Body)
+	}
+}
+
+func TestAgentsHealthFields(t *testing.T) {
+	f := newFakeDB()
+	seen := time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC)
+	notAfter := seen.AddDate(1, 0, 0)
+	dropped := seen.Add(-time.Hour)
+	f.agents = []store.AgentListInfo{
+		{ID: uuid.New(), Site: "lon", Hostname: "lon-1", ProbeAddress: "10.0.0.1",
+			Version: "abc123", LastSeenAt: &seen, CreatedAt: seen.AddDate(0, -1, 0),
+			ConfigHash: "deadbeef", CertNotAfter: &notAfter,
+			Offline: true, ProbesFailing: 2, ProbesTotal: 9,
+			DroppedResults: 41, LastDroppedAt: &dropped},
+	}
+	h := newTestAPI(t, f)
+	cookie, _ := loginAndCookie(t, h, f)
+
+	req := httptest.NewRequest("GET", "/api/v1/agents", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("agents = %d %s", w.Code, w.Body)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`"offline":true`, `"probes_failing":2`, `"probes_total":9`,
+		`"dropped_results":41`, `"config_hash":"deadbeef"`,
+		`"cert_not_after":"2027-07-31T09:00:00Z"`, `"cert_revoked_at":null`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("agents body missing %s: %s", want, body)
+		}
 	}
 }
 

@@ -220,3 +220,16 @@ func (s *Store) TouchAgent(ctx context.Context, agentID uuid.UUID, version, conf
 	}
 	return nil
 }
+
+// RecordDroppedResults accumulates an agent's dropped_since_last_push report.
+// The wire value is a delta (the agent clears its counter only after an
+// acknowledged push), so the running total is add-only.
+func (s *Store) RecordDroppedResults(ctx context.Context, agentID uuid.UUID, n uint64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE agents SET dropped_results = dropped_results + $2, last_dropped_at = now()
+		WHERE id = $1`, agentID, int64(n))
+	if err != nil {
+		return fmt.Errorf("record dropped results: %w", err)
+	}
+	return nil
+}

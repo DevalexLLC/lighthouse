@@ -198,6 +198,13 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 	if req.GetDroppedSinceLastPush() > 0 {
 		slog.Warn("agent reported spooled results dropped",
 			"agent", id.AgentID, "dropped", req.GetDroppedSinceLastPush())
+		// Persist before ingest: the agent clears its counter only on an
+		// acknowledged push, so failing the RPC here loses nothing — the
+		// delta comes back on retry (dedupe makes the batch replay safe).
+		if err := s.store.RecordDroppedResults(ctx, id.AgentID, req.GetDroppedSinceLastPush()); err != nil {
+			slog.Error("recording dropped results failed", "agent", id.AgentID, "err", err)
+			return nil, status.Error(codes.Unavailable, "drop accounting failed, retry")
+		}
 	}
 	if len(req.GetResults()) > maxBatchSize {
 		return nil, status.Errorf(codes.InvalidArgument, "batch of %d exceeds the %d-result limit",

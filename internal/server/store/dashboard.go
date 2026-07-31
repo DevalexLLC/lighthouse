@@ -99,7 +99,9 @@ type SiteInfo struct {
 	Location    string
 }
 
-// AgentListInfo is an agents row joined with its site name.
+// AgentListInfo is an agents row joined with its site name plus the health
+// signals the dashboard's Agents view shows: newest certificate, open
+// outages, active series, and reported spool loss.
 type AgentListInfo struct {
 	ID           uuid.UUID
 	Site         string
@@ -107,6 +109,17 @@ type AgentListInfo struct {
 	ProbeAddress string
 	Version      string
 	LastSeenAt   *time.Time
+	CreatedAt    time.Time
+	ConfigHash   string
+	// Newest certificate by issuance; nil only for an agent with no cert
+	// row (never happens through real enrollment).
+	CertNotAfter   *time.Time
+	CertRevokedAt  *time.Time
+	Offline        bool  // an agent_offline outage is currently open
+	ProbesFailing  int64 // open probe_failing outages
+	ProbesTotal    int64 // series ever seen for this agent (series_state rows)
+	DroppedResults int64
+	LastDroppedAt  *time.Time
 }
 
 // MatrixRow is the latest result of one (agent, agent-target, probe type)
@@ -191,11 +204,31 @@ func (s *Store) ListSites(ctx context.Context) ([]SiteInfo, error) {
 	return out, rows.Err()
 }
 
-// ListAgents returns all agents with their site names.
+// ListAgents returns all agents with their site names and health signals.
+// The open-outage fold hits the partial index on closed_at IS NULL;
+// series_state is one small row per series, so the aggregate is cheap.
 func (s *Store) ListAgents(ctx context.Context) ([]AgentListInfo, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT a.id, s.name, a.hostname, a.probe_address, a.version, a.last_seen_at
-		   FROM agents a JOIN sites s ON s.id = a.site_id
+		`SELECT a.id, s.name, a.hostname, a.probe_address, a.version, a.last_seen_at,
+		        a.created_at, a.current_config_hash, a.dropped_results, a.last_dropped_at,
+		        c.not_after, c.revoked_at,
+		        COALESCE(o.offline, false), COALESCE(o.failing, 0),
+		        COALESCE(ss.total, 0)
+		   FROM agents a
+		   JOIN sites s ON s.id = a.site_id
+		   LEFT JOIN LATERAL (
+		        SELECT not_after, revoked_at FROM certificates
+		         WHERE agent_id = a.id ORDER BY created_at DESC LIMIT 1
+		   ) c ON true
+		   LEFT JOIN (
+		        SELECT agent_id,
+		               bool_or(kind = 'agent_offline') AS offline,
+		               count(*) FILTER (WHERE kind = 'probe_failing') AS failing
+		          FROM outage_events WHERE closed_at IS NULL GROUP BY agent_id
+		   ) o ON o.agent_id = a.id
+		   LEFT JOIN (
+		        SELECT agent_id, count(*) AS total FROM series_state GROUP BY agent_id
+		   ) ss ON ss.agent_id = a.id
 		  ORDER BY s.name, a.hostname`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -204,7 +237,10 @@ func (s *Store) ListAgents(ctx context.Context) ([]AgentListInfo, error) {
 	var out []AgentListInfo
 	for rows.Next() {
 		var ai AgentListInfo
-		if err := rows.Scan(&ai.ID, &ai.Site, &ai.Hostname, &ai.ProbeAddress, &ai.Version, &ai.LastSeenAt); err != nil {
+		if err := rows.Scan(&ai.ID, &ai.Site, &ai.Hostname, &ai.ProbeAddress, &ai.Version, &ai.LastSeenAt,
+			&ai.CreatedAt, &ai.ConfigHash, &ai.DroppedResults, &ai.LastDroppedAt,
+			&ai.CertNotAfter, &ai.CertRevokedAt,
+			&ai.Offline, &ai.ProbesFailing, &ai.ProbesTotal); err != nil {
 			return nil, fmt.Errorf("list agents: %w", err)
 		}
 		out = append(out, ai)

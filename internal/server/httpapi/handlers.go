@@ -37,18 +37,31 @@ func (a *api) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type agentJSON struct {
-		ID           string     `json:"id"`
-		Site         string     `json:"site"`
-		Hostname     string     `json:"hostname"`
-		ProbeAddress string     `json:"probe_address"`
-		Version      string     `json:"version"`
-		LastSeenAt   *time.Time `json:"last_seen_at"`
+		ID             string     `json:"id"`
+		Site           string     `json:"site"`
+		Hostname       string     `json:"hostname"`
+		ProbeAddress   string     `json:"probe_address"`
+		Version        string     `json:"version"`
+		LastSeenAt     *time.Time `json:"last_seen_at"`
+		EnrolledAt     time.Time  `json:"enrolled_at"`
+		ConfigHash     string     `json:"config_hash"`
+		CertNotAfter   *time.Time `json:"cert_not_after"`
+		CertRevokedAt  *time.Time `json:"cert_revoked_at"`
+		Offline        bool       `json:"offline"`
+		ProbesFailing  int64      `json:"probes_failing"`
+		ProbesTotal    int64      `json:"probes_total"`
+		DroppedResults int64      `json:"dropped_results"`
+		LastDroppedAt  *time.Time `json:"last_dropped_at"`
 	}
 	out := make([]agentJSON, len(agents))
 	for i, ag := range agents {
 		out[i] = agentJSON{
 			ID: ag.ID.String(), Site: ag.Site, Hostname: ag.Hostname,
 			ProbeAddress: ag.ProbeAddress, Version: ag.Version, LastSeenAt: ag.LastSeenAt,
+			EnrolledAt: ag.CreatedAt, ConfigHash: ag.ConfigHash,
+			CertNotAfter: ag.CertNotAfter, CertRevokedAt: ag.CertRevokedAt,
+			Offline: ag.Offline, ProbesFailing: ag.ProbesFailing, ProbesTotal: ag.ProbesTotal,
+			DroppedResults: ag.DroppedResults, LastDroppedAt: ag.LastDroppedAt,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": out})
@@ -247,8 +260,8 @@ func (a *api) handleSeries(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metric": metric, "window": windowName(r),
-		"resolution_s":   int(spec.Bucket.Seconds()),
-		"source":         string(spec.Source),
+		"resolution_s": int(spec.Bucket.Seconds()),
+		"source":       string(spec.Source),
 		// Top-level latency_source predates directional sources; it stays
 		// as the a_to_b alias so pre-M5 clients keep an honest axis label.
 		"latency_source": aSource,
