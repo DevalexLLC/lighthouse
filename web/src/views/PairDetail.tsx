@@ -28,13 +28,28 @@ function palette() {
   return matchMedia('(prefers-color-scheme: dark)').matches ? COLORS.dark : COLORS.light
 }
 
-function toChartData(points: SeriesPoint[], metric: Metric): uPlot.AlignedData {
+// withPctl must match the series list mkOptions builds for the same render:
+// uPlot requires data columns and series definitions to agree in count.
+function toChartData(points: SeriesPoint[], metric: Metric, withPctl: boolean): uPlot.AlignedData {
   const ts = points.map((p) => p.t)
   if (metric === 'loss') {
     return [ts, points.map((p) => p.loss_pct)]
   }
-  const ms = (v: number | null) => (v == null ? null : v / 1000)
-  return [ts, points.map((p) => ms(p.avg_us)), points.map((p) => ms(p.min_us)), points.map((p) => ms(p.max_us))]
+  const ms = (v: number | null | undefined) => (v == null ? null : v / 1000)
+  const cols: uPlot.AlignedData = [
+    ts,
+    points.map((p) => ms(p.avg_us)),
+    points.map((p) => ms(p.min_us)),
+    points.map((p) => ms(p.max_us)),
+  ]
+  if (withPctl) {
+    cols.push(
+      points.map((p) => ms(p.p50_us)),
+      points.map((p) => ms(p.p95_us)),
+      points.map((p) => ms(p.p99_us)),
+    )
+  }
+  return cols
 }
 
 function hasAnyValue(points: SeriesPoint[], metric: Metric): boolean {
@@ -77,10 +92,31 @@ function DirectionCard({
             {fmtLatency(s.latency.min_us)} / {fmtLatency(s.latency.max_us)}
           </dd>
         </div>
+        {s.latency.p50_us != null && (
+          <div>
+            <dt>p50 / p95 / p99</dt>
+            <dd>
+              {fmtLatency(s.latency.p50_us)} / {fmtLatency(s.latency.p95_us ?? null)} /{' '}
+              {fmtLatency(s.latency.p99_us ?? null)}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Loss</dt>
           <dd>{s.loss_pct == null ? '—' : s.loss_pct.toFixed(1) + '%'}</dd>
         </div>
+        <div>
+          <dt>Jitter</dt>
+          <dd>{fmtLatency(s.jitter_avg_us)}</dd>
+        </div>
+        {(s.tcp_connect_avg_us != null || s.tls_handshake_avg_us != null) && (
+          <div>
+            <dt>TCP / TLS</dt>
+            <dd>
+              {fmtLatency(s.tcp_connect_avg_us)} / {fmtLatency(s.tls_handshake_avg_us)}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Last OK</dt>
           <dd>{fmtTime(s.last_ok_at)}</dd>
@@ -183,7 +219,7 @@ export default function PairDetail({
   }, [a, b, win, metric, onAuthError])
 
   const mkOptions = useMemo(() => {
-    return (direction: 'aToB' | 'bToA', axisLabel: string): Omit<uPlot.Options, 'width'> => {
+    return (direction: 'aToB' | 'bToA', axisLabel: string, withPctl: boolean): Omit<uPlot.Options, 'width'> => {
       const c = palette()
       const stroke = c[direction]
       const axisStyle = {
@@ -205,6 +241,14 @@ export default function PairDetail({
               { label: 'min', stroke, width: 1, alpha: 0.4, spanGaps: false, value },
               { label: 'max', stroke, width: 1, alpha: 0.4, spanGaps: false, value },
             ]
+      if (metric === 'latency' && withPctl) {
+        // Aggregate windows only; must stay in lockstep with toChartData.
+        series.push(
+          { label: 'p50', stroke, width: 1.5, alpha: 0.7, spanGaps: false, value },
+          { label: 'p95', stroke, width: 1, alpha: 0.55, dash: [6, 4], spanGaps: false, value },
+          { label: 'p99', stroke, width: 1, alpha: 0.35, dash: [2, 4], spanGaps: false, value },
+        )
+      }
       return {
         height: 230,
         series,
@@ -224,10 +268,12 @@ export default function PairDetail({
   if (!series || !pair) return <p className="muted">Loading…</p>
 
   const axisLabel = metric === 'loss' ? 'Loss (%)' : latencyAxisLabel(series.latency_source)
+  const withPctl = metric === 'latency' && series.source !== 'raw'
+  const sourceLabel = series.source === 'raw' ? 'raw' : `${series.source} aggregate`
   const bucketLabel =
-    series.resolution_s >= 3600
+    (series.resolution_s >= 3600
       ? `${series.resolution_s / 3600} h buckets`
-      : `${series.resolution_s / 60} min buckets`
+      : `${series.resolution_s / 60} min buckets`) + ` · ${sourceLabel}`
 
   const directions: {
     key: 'a_to_b' | 'b_to_a'
@@ -309,7 +355,7 @@ export default function PairDetail({
                 </p>
               </div>
             ) : (
-              <Chart options={mkOptions(chart, axisLabel)} data={toChartData(points, metric)} />
+              <Chart options={mkOptions(chart, axisLabel, withPctl)} data={toChartData(points, metric, withPctl)} />
             )}
           </div>
         )

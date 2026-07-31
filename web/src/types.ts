@@ -59,10 +59,18 @@ export interface MatrixResponse {
   horizon_s: number
 }
 
+// Which table served a windowed query. Raw windows (24h/7d) have no
+// percentile fields; hourly/daily (30d+) do.
+export type SeriesSource = 'raw' | 'hourly' | 'daily'
+
 export interface LatencySummary {
   min_us: number | null
   avg_us: number | null
   max_us: number | null
+  // Present only when source != 'raw' (server omits the keys otherwise).
+  p50_us?: number | null
+  p95_us?: number | null
+  p99_us?: number | null
 }
 
 export interface DirectionSummary {
@@ -72,12 +80,16 @@ export interface DirectionSummary {
   latency_source: string
   loss_pct: number | null
   samples: number
+  jitter_avg_us: number | null
+  tcp_connect_avg_us: number | null
+  tls_handshake_avg_us: number | null
 }
 
 export interface PairResponse {
   a: string
   b: string
   window: string
+  source: SeriesSource
   a_to_b: DirectionSummary
   b_to_a: DirectionSummary
 }
@@ -90,12 +102,17 @@ export interface SeriesPoint {
   loss_pct: number | null
   samples: number
   failures: number
+  // Present only when source != 'raw' (server omits the keys otherwise).
+  p50_us?: number | null
+  p95_us?: number | null
+  p99_us?: number | null
 }
 
 export interface SeriesResponse {
   metric: 'latency' | 'loss'
   window: string
   resolution_s: number
+  source: SeriesSource
   latency_source: string
   a_to_b: { points: SeriesPoint[] }
   b_to_a: { points: SeriesPoint[] }
