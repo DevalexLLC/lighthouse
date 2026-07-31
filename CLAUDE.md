@@ -89,8 +89,22 @@ Full design + milestone plan: `docs/architecture.md`.
   hop diff rendered in the Paths view; `docker stop agent-lon` → one
   `agent_offline` ≤2.5 m, closed 9 s after restart; zero duplicate open
   events; offline `make build`/`make test` green.
-- Next: M5 — Toolkit percentiles, continuous aggregates, retention. See
-  the milestone table in `docs/architecture.md`.
+- M5 (Toolkit percentiles, hourly/daily continuous aggregates, retention
+  policies, window→source resolution, p50/p95/p99 + jitter/tcp/tls in the
+  pair API and SPA, `.notx.sql` migration escape hatch, `make seed`) —
+  done; gate verified in compose: fresh stack auto-migrated 0005–0008
+  (caggs applied outside transactions); `make seed` loaded 90 d ×
+  6 directions (777 600 rows) in ~10 s and printed exact empirical
+  percentiles; 90 d pair + series answered in 30–60 ms (≪500 ms) with
+  `source: hourly`, EXPLAIN showing `_materialized_hypertable` chunk
+  scans; API p50/p95/p99 within 0.13 % of the seed distribution; 365 d
+  series `source: daily`, 91 daily points, percentiles on every point;
+  24h/7d stayed raw with percentile keys absent; 2 refresh + 3 retention
+  jobs listed; a migrated-then-stripped scratch DB made serve exit
+  `preflight: timescaledb_toolkit extension is not installed …`; re-run
+  `make seed` left row counts identical; matrix/outages/path-events
+  regression-clean; offline `make build`/`make test` green.
+- Next: M6+ — see the milestone table in `docs/architecture.md`.
 
 ### M2 notes worth knowing
 
@@ -175,3 +189,51 @@ Full design + milestone plan: `docs/architecture.md`.
 - The SPA fallback serves index.html for unknown non-/api GETs only;
   unmatched `/api/*` must stay JSON 404 and `/healthz` unauthenticated
   (tests enforce both).
+
+### M5 notes worth knowing
+
+- Migrations named `NNNN_name.notx.sql` run as a single autocommit Exec
+  (no transaction) — required because cagg creation is refused inside a
+  transaction block, and a multi-statement simple-query message gets an
+  *implicit* transaction that Timescale rejects the same way. Hence the
+  two enforced invariants (pinned by `migrate_test.go`): exactly ONE
+  top-level statement per notx file, and idempotent DDL (`IF NOT
+  EXISTS`), because recording in `schema_migrations` is a separate
+  statement and the crash window between the two must converge on re-run.
+- The caggs store only sums/counts/min/max plus a UddSketch
+  (`percentile_agg`); `probe_results_daily` is a hierarchical `rollup()`
+  of hourly. Never add an `avg()` (or any non-re-aggregable) column to a
+  cagg — daily would silently produce wrong numbers. Averages are always
+  `sum/count` at query time.
+- The COALESCE latency ladder exists in TWO places: `latencyExpr` in
+  `store/dashboard.go` and frozen inside `0006_m5_hourly_cagg.notx.sql`
+  (shipped migrations are immutable). Changing the ladder needs a new
+  cagg version, or raw and aggregate windows will disagree.
+- Window→source: 24h/7d→raw, 30/90d→hourly, 365d→daily
+  (`httpapi/windows.go`, pinned by `TestWindows`). Aggregate-sourced
+  responses carry `p50_us/p95_us/p99_us` (omitted, not null, on raw
+  windows — clients key off absence) and every pair/series response has
+  `source`. Matrix/DirectionLatest stay on raw (10-min horizon).
+- `latency_source` = newest raw row **whose COALESCE latency is non-NULL**
+  bounded 14 d (`PairLatencySource`); without the non-NULL filter the
+  label flickers to "" whenever a traceroute or failed probe is
+  momentarily newest.
+- Policy offsets are ordered on purpose: hourly refresh `start_offset` 8 d
+  > agent spool `max_age` 7 d (late replay lands refreshable) and < raw
+  retention 14 d (refresh never reads a dropped region); daily 10 d >
+  hourly's window. Both caggs are `materialized_only = false`, so the
+  un-refreshed tail is served live — correct before the first refresh.
+- `make seed` → `lighthouse-server seed` (runs inside compose; DB is not
+  host-exposed): deterministic per-pair history (seeded RNG, diurnal +
+  long-tail noise, scripted outages), seed-owned UUIDv5 probe IDs so
+  re-runs delete exactly their prior rows, CopyFrom, then explicit
+  `refresh_continuous_aggregate` on both caggs (never rely on the policy
+  schedule — retention could drop the >14 d raw region first; the CALLs
+  need the simple protocol and no surrounding tx). It prints exact
+  empirical p50/p95/p99 per direction for gate comparison (UddSketch is
+  approximate; ~5 % tolerance, observed ≤0.2 %). Seeded history ends 2 min
+  in the past so live probes stay newest per series and the matrix keeps
+  reflecting reality.
+- `DROP EXTENSION timescaledb_toolkit` is blocked by cagg column
+  dependencies once 0006+ are applied — to exercise the serve preflight,
+  migrate a scratch DB, drop the two matviews, then the extension.
