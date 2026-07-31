@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, apiGet, apiPost, setCsrfToken } from './api'
 import type { LoginResponse, User } from './types'
+import Agents from './views/Agents'
 import Login from './views/Login'
 import Matrix from './views/Matrix'
 import Outages from './views/Outages'
@@ -8,13 +9,14 @@ import PairDetail from './views/PairDetail'
 import Paths from './views/Paths'
 
 // Hash routing: '#/' → matrix, '#/pair/{a}/{b}' → pair detail, '#/outages'
-// and '#/paths' → the event logs. Login is an auth-gate state, not a route,
-// so deep links survive a login round-trip.
+// and '#/paths' → the event logs, '#/agents' → fleet health. Login is an
+// auth-gate state, not a route, so deep links survive a login round-trip.
 type Route =
   | { view: 'matrix' }
   | { view: 'pair'; a: string; b: string }
   | { view: 'outages' }
   | { view: 'paths' }
+  | { view: 'agents' }
 
 function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/')
@@ -23,6 +25,7 @@ function parseHash(hash: string): Route {
   }
   if (parts[0] === 'outages') return { view: 'outages' }
   if (parts[0] === 'paths') return { view: 'paths' }
+  if (parts[0] === 'agents') return { view: 'agents' }
   return { view: 'matrix' }
 }
 
@@ -111,6 +114,13 @@ export default function App() {
           >
             Passages
           </a>
+          <a
+            href="#/agents"
+            className={route.view === 'agents' ? 'active' : ''}
+            aria-current={route.view === 'agents' ? 'page' : undefined}
+          >
+            Agents
+          </a>
         </nav>
         <div className="topbar-right">
           <span className="username">
@@ -128,6 +138,8 @@ export default function App() {
           <PairDetail a={route.a} b={route.b} onAuthError={onAuthError} />
         ) : route.view === 'outages' ? (
           <Outages onAuthError={onAuthError} />
+        ) : route.view === 'agents' ? (
+          <Agents onAuthError={onAuthError} />
         ) : (
           <Paths onAuthError={onAuthError} />
         )}

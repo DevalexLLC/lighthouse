@@ -57,7 +57,20 @@ Full design + milestone plan: `docs/architecture.md`.
 
 - Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
   the header, login page, loading state, and favicon; it has no runtime
-  network or font dependency.
+  network or font dependency. Nav views are themed: Sightlines (site
+  matrix), Outages, Passages (path changes), Agents — display names only;
+  route ids, API paths, and the path/hop vocabulary inside views are
+  unchanged.
+- Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries
+  enrolled_at, config_hash, newest-cert not_after/revoked_at, open
+  outage rollups (offline flag + probes_failing count), series totals,
+  and spool-drop accounting. `dropped_since_last_push` is persisted
+  (`agents.dropped_results` running total + `last_dropped_at`) — the
+  wire value is a delta (agent clears only after an acked push), so the
+  server accumulates; a failed drop-write fails the RPC (Unavailable) so
+  the report is retried, never silently lost. Schema landed by editing
+  `0001_init.sql` in place (pre-release convention) — existing dev DBs
+  need `down -v`. Verified on a fresh compose stack through the proxy.
 - M0 (scaffolding, strict config, compose stack) — done.
 - M1 (protos, CA, enrollment, mTLS session, revocation) — done; verified
   e2e in compose: enroll → connect through SNI proxy → last_seen updates →

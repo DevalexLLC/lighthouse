@@ -28,6 +28,15 @@ export interface AgentInfo {
   probe_address: string
   version: string
   last_seen_at: string | null
+  enrolled_at: string
+  config_hash: string
+  cert_not_after: string | null
+  cert_revoked_at: string | null
+  offline: boolean
+  probes_failing: number
+  probes_total: number
+  dropped_results: number
+  last_dropped_at: string | null
 }
 
 export interface AgentsResponse {
