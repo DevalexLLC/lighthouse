@@ -98,25 +98,34 @@ func (a *api) pairEndpoints(w http.ResponseWriter, r *http.Request) (ea, eb *sto
 	return ea, eb, true
 }
 
+// Percentile fields carry omitempty: they exist only for aggregate-sourced
+// windows (30d+), and their absence is how a client knows a raw window has
+// no percentile data rather than a measured zero.
 type latencyJSON struct {
 	MinUS *float64 `json:"min_us"`
 	AvgUS *float64 `json:"avg_us"`
 	MaxUS *float64 `json:"max_us"`
+	P50US *float64 `json:"p50_us,omitempty"`
+	P95US *float64 `json:"p95_us,omitempty"`
+	P99US *float64 `json:"p99_us,omitempty"`
 }
 
 type directionJSON struct {
-	Status        string      `json:"status"`
-	LastOKAt      *time.Time  `json:"last_ok_at"`
-	Latency       latencyJSON `json:"latency"`
-	LatencySource string      `json:"latency_source"`
-	LossPct       *float64    `json:"loss_pct"`
-	Samples       int64       `json:"samples"`
+	Status            string      `json:"status"`
+	LastOKAt          *time.Time  `json:"last_ok_at"`
+	Latency           latencyJSON `json:"latency"`
+	LatencySource     string      `json:"latency_source"`
+	LossPct           *float64    `json:"loss_pct"`
+	Samples           int64       `json:"samples"`
+	JitterAvgUS       *float64    `json:"jitter_avg_us"`
+	TCPConnectAvgUS   *float64    `json:"tcp_connect_avg_us"`
+	TLSHandshakeAvgUS *float64    `json:"tls_handshake_avg_us"`
 }
 
 // direction assembles one direction's summary (aggregates over the window,
 // status from the latest results inside the staleness horizon).
-func (a *api) direction(r *http.Request, src, dst *store.SiteEndpoints, window time.Duration) (directionJSON, error) {
-	sum, err := a.db.PairSummary(r.Context(), src.AgentIDs, dst.TargetIDs, window)
+func (a *api) direction(r *http.Request, src, dst *store.SiteEndpoints, spec windowSpec) (directionJSON, error) {
+	sum, err := a.db.PairSummary(r.Context(), src.AgentIDs, dst.TargetIDs, spec.Window, spec.Source)
 	if err != nil {
 		return directionJSON{}, err
 	}
@@ -125,12 +134,18 @@ func (a *api) direction(r *http.Request, src, dst *store.SiteEndpoints, window t
 		return directionJSON{}, err
 	}
 	return directionJSON{
-		Status:        directionStatus(latest),
-		LastOKAt:      sum.LastOKAt,
-		Latency:       latencyJSON{MinUS: sum.MinUS, AvgUS: sum.AvgUS, MaxUS: sum.MaxUS},
-		LatencySource: sum.LatencySource,
-		LossPct:       sum.LossPct,
-		Samples:       sum.Samples,
+		Status:   directionStatus(latest),
+		LastOKAt: sum.LastOKAt,
+		Latency: latencyJSON{
+			MinUS: sum.MinUS, AvgUS: sum.AvgUS, MaxUS: sum.MaxUS,
+			P50US: sum.P50US, P95US: sum.P95US, P99US: sum.P99US,
+		},
+		LatencySource:     sum.LatencySource,
+		LossPct:           sum.LossPct,
+		Samples:           sum.Samples,
+		JitterAvgUS:       sum.JitterAvgUS,
+		TCPConnectAvgUS:   sum.TCPConnectAvgUS,
+		TLSHandshakeAvgUS: sum.TLSHandshakeAvgUS,
 	}, nil
 }
 
@@ -144,19 +159,20 @@ func (a *api) handlePair(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	aToB, err := a.direction(r, ea, eb, spec.Window)
+	aToB, err := a.direction(r, ea, eb, spec)
 	if err != nil {
 		internalError(w, "pair a→b", err)
 		return
 	}
-	bToA, err := a.direction(r, eb, ea, spec.Window)
+	bToA, err := a.direction(r, eb, ea, spec)
 	if err != nil {
 		internalError(w, "pair b→a", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"a": ea.Name, "b": eb.Name,
-		"window": windowName(r), "a_to_b": aToB, "b_to_a": bToA,
+		"window": windowName(r), "source": string(spec.Source),
+		"a_to_b": aToB, "b_to_a": bToA,
 	})
 }
 
@@ -168,6 +184,9 @@ type pointJSON struct {
 	LossPct  *float64 `json:"loss_pct"`
 	Samples  int64    `json:"samples"`
 	Failures int64    `json:"failures"`
+	P50US    *float64 `json:"p50_us,omitempty"`
+	P95US    *float64 `json:"p95_us,omitempty"`
+	P99US    *float64 `json:"p99_us,omitempty"`
 }
 
 func toPoints(buckets []store.SeriesBucket) []pointJSON {
@@ -176,6 +195,7 @@ func toPoints(buckets []store.SeriesBucket) []pointJSON {
 		out[i] = pointJSON{
 			T: b.Bucket.Unix(), MinUS: b.MinUS, AvgUS: b.AvgUS, MaxUS: b.MaxUS,
 			LossPct: b.LossPct, Samples: b.Samples, Failures: b.Failures,
+			P50US: b.P50US, P95US: b.P95US, P99US: b.P99US,
 		}
 	}
 	return out
@@ -199,19 +219,18 @@ func (a *api) handleSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	aToB, err := a.db.PairSeries(r.Context(), ea.AgentIDs, eb.TargetIDs, spec.Bucket, spec.Window)
+	aToB, err := a.db.PairSeries(r.Context(), ea.AgentIDs, eb.TargetIDs, spec.Bucket, spec.Window, spec.Source)
 	if err != nil {
 		internalError(w, "series a→b", err)
 		return
 	}
-	bToA, err := a.db.PairSeries(r.Context(), eb.AgentIDs, ea.TargetIDs, spec.Bucket, spec.Window)
+	bToA, err := a.db.PairSeries(r.Context(), eb.AgentIDs, ea.TargetIDs, spec.Bucket, spec.Window, spec.Source)
 	if err != nil {
 		internalError(w, "series b→a", err)
 		return
 	}
-	// The axis label follows whatever the newest data measures; summary
-	// already computes it, so reuse that (cheap, and keeps them agreeing).
-	sum, err := a.db.PairSummary(r.Context(), ea.AgentIDs, eb.TargetIDs, spec.Window)
+	// The axis label follows whatever the newest raw data measures.
+	latSource, err := a.db.PairLatencySource(r.Context(), ea.AgentIDs, eb.TargetIDs)
 	if err != nil {
 		internalError(w, "series source", err)
 		return
@@ -219,7 +238,8 @@ func (a *api) handleSeries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metric": metric, "window": windowName(r),
 		"resolution_s":   int(spec.Bucket.Seconds()),
-		"latency_source": sum.LatencySource,
+		"source":         string(spec.Source),
+		"latency_source": latSource,
 		"a_to_b":         map[string]any{"points": toPoints(aToB)},
 		"b_to_a":         map[string]any{"points": toPoints(bToA)},
 	})

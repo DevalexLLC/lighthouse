@@ -21,9 +21,15 @@ import (
 // fakeDB implements DB in memory. Only the parts each test exercises are
 // populated; unhandled paths return zero values.
 type fakeDB struct {
-	users    map[string]*store.UserInfo
-	sessions map[string]*store.SessionInfo // key: string(token_hash)
-	outages  []store.OutageInfo
+	users     map[string]*store.UserInfo
+	sessions  map[string]*store.SessionInfo // key: string(token_hash)
+	outages   []store.OutageInfo
+	endpoints map[string]*store.SiteEndpoints
+
+	pairSummary   *store.PairSummaryRow
+	pairSeries    []store.SeriesBucket
+	latencySource string
+	lastSource    store.Source // source passed to the last PairSeries/PairSummary call
 }
 
 func newFakeDB() *fakeDB {
@@ -83,14 +89,22 @@ func (f *fakeDB) MatrixLatest(_ context.Context, _ time.Duration) ([]store.Matri
 	return nil, nil
 }
 func (f *fakeDB) ExpectedPairs(_ context.Context) ([]store.SitePair, error) { return nil, nil }
-func (f *fakeDB) SiteEndpoints(_ context.Context, _ string) (*store.SiteEndpoints, error) {
-	return nil, nil
+func (f *fakeDB) SiteEndpoints(_ context.Context, name string) (*store.SiteEndpoints, error) {
+	return f.endpoints[name], nil
 }
-func (f *fakeDB) PairSeries(_ context.Context, _, _ []uuid.UUID, _, _ time.Duration) ([]store.SeriesBucket, error) {
-	return nil, nil
+func (f *fakeDB) PairSeries(_ context.Context, _, _ []uuid.UUID, _, _ time.Duration, source store.Source) ([]store.SeriesBucket, error) {
+	f.lastSource = source
+	return f.pairSeries, nil
 }
-func (f *fakeDB) PairSummary(_ context.Context, _, _ []uuid.UUID, _ time.Duration) (*store.PairSummaryRow, error) {
+func (f *fakeDB) PairSummary(_ context.Context, _, _ []uuid.UUID, _ time.Duration, source store.Source) (*store.PairSummaryRow, error) {
+	f.lastSource = source
+	if f.pairSummary != nil {
+		return f.pairSummary, nil
+	}
 	return &store.PairSummaryRow{}, nil
+}
+func (f *fakeDB) PairLatencySource(_ context.Context, _, _ []uuid.UUID) (string, error) {
+	return f.latencySource, nil
 }
 func (f *fakeDB) DirectionLatest(_ context.Context, _, _ []uuid.UUID, _ time.Duration) ([]store.MatrixRow, error) {
 	return nil, nil
@@ -385,6 +399,95 @@ func TestBadWindowAndMetric(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("GET %s = %d, want 400", url, w.Code)
 		}
+	}
+}
+
+// TestPairPercentilesAndSource covers the M5 additions: aggregate-sourced
+// windows carry p50/p95/p99, jitter/tcp/tls averages, and the source label;
+// raw windows omit the percentile keys entirely (omitempty, not zero).
+func TestPairPercentilesAndSource(t *testing.T) {
+	f := newFakeDB()
+	f.endpoints = map[string]*store.SiteEndpoints{
+		"nyc": {SiteInfo: store.SiteInfo{Name: "nyc"}},
+		"lon": {SiteInfo: store.SiteInfo{Name: "lon"}},
+	}
+	fv := func(v float64) *float64 { return &v }
+	f.pairSummary = &store.PairSummaryRow{
+		AvgUS: fv(1500), P50US: fv(1400), P95US: fv(2900), P99US: fv(4100),
+		JitterAvgUS: fv(120), TCPConnectAvgUS: fv(800), TLSHandshakeAvgUS: fv(2100),
+		LatencySource: "rtt", Samples: 42,
+	}
+	f.pairSeries = []store.SeriesBucket{
+		{Bucket: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), AvgUS: fv(1500),
+			P50US: fv(1400), P95US: fv(2900), P99US: fv(4100), Samples: 12},
+	}
+	f.latencySource = "rtt"
+	h := newTestAPI(t, f)
+	cookie, _ := loginAndCookie(t, h, f)
+
+	get := func(url string) map[string]any {
+		t.Helper()
+		req := httptest.NewRequest("GET", url, nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d %s", url, w.Code, w.Body)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		return body
+	}
+
+	pair := get("/api/v1/pairs/nyc/lon?window=90d")
+	if pair["source"] != "hourly" {
+		t.Errorf("pair source = %v, want hourly", pair["source"])
+	}
+	if f.lastSource != store.SourceHourly {
+		t.Errorf("PairSummary called with source %q, want hourly", f.lastSource)
+	}
+	lat := pair["a_to_b"].(map[string]any)["latency"].(map[string]any)
+	for key, want := range map[string]float64{"p50_us": 1400, "p95_us": 2900, "p99_us": 4100} {
+		if lat[key] != want {
+			t.Errorf("pair latency[%s] = %v, want %v", key, lat[key], want)
+		}
+	}
+	if jit := pair["a_to_b"].(map[string]any)["jitter_avg_us"]; jit != 120.0 {
+		t.Errorf("jitter_avg_us = %v, want 120", jit)
+	}
+
+	series := get("/api/v1/pairs/nyc/lon/series?window=365d")
+	if series["source"] != "daily" || series["latency_source"] != "rtt" {
+		t.Errorf("series source/latency_source = %v/%v, want daily/rtt", series["source"], series["latency_source"])
+	}
+	if f.lastSource != store.SourceDaily {
+		t.Errorf("PairSeries called with source %q, want daily", f.lastSource)
+	}
+	pt := series["a_to_b"].(map[string]any)["points"].([]any)[0].(map[string]any)
+	if pt["p95_us"] != 2900.0 {
+		t.Errorf("series point p95_us = %v, want 2900", pt["p95_us"])
+	}
+
+	// Raw window: fake returns nil percentiles, and omitempty must drop the
+	// keys rather than render null/0.
+	f.pairSummary = &store.PairSummaryRow{AvgUS: fv(1500), LatencySource: "rtt"}
+	f.pairSeries = []store.SeriesBucket{{Bucket: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), AvgUS: fv(1500)}}
+	raw := get("/api/v1/pairs/nyc/lon?window=24h")
+	if raw["source"] != "raw" {
+		t.Errorf("raw pair source = %v, want raw", raw["source"])
+	}
+	rawLat := raw["a_to_b"].(map[string]any)["latency"].(map[string]any)
+	for _, key := range []string{"p50_us", "p95_us", "p99_us"} {
+		if _, present := rawLat[key]; present {
+			t.Errorf("raw window latency carries %s; want key absent", key)
+		}
+	}
+	rawSeries := get("/api/v1/pairs/nyc/lon/series?window=7d")
+	rawPt := rawSeries["a_to_b"].(map[string]any)["points"].([]any)[0].(map[string]any)
+	if _, present := rawPt["p50_us"]; present {
+		t.Error("raw series point carries p50_us; want key absent")
 	}
 }
 

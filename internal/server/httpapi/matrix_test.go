@@ -100,17 +100,23 @@ func TestDirectionStatus(t *testing.T) {
 }
 
 func TestWindows(t *testing.T) {
-	for name, wantBucket := range map[string]time.Duration{
-		"24h": time.Minute, "7d": 5 * time.Minute, "30d": time.Hour,
-		"90d": 3 * time.Hour, "365d": 24 * time.Hour,
+	for name, want := range map[string]struct {
+		bucket time.Duration
+		source store.Source
+	}{
+		"24h":  {time.Minute, store.SourceRaw},
+		"7d":   {5 * time.Minute, store.SourceRaw},
+		"30d":  {time.Hour, store.SourceHourly},
+		"90d":  {3 * time.Hour, store.SourceHourly},
+		"365d": {24 * time.Hour, store.SourceDaily},
 	} {
 		spec, ok := parseWindow(name)
-		if !ok || spec.Bucket != wantBucket {
-			t.Errorf("parseWindow(%q) = %+v %v, want bucket %v", name, spec, ok, wantBucket)
+		if !ok || spec.Bucket != want.bucket || spec.Source != want.source {
+			t.Errorf("parseWindow(%q) = %+v %v, want bucket %v source %q", name, spec, ok, want.bucket, want.source)
 		}
 	}
-	if spec, ok := parseWindow(""); !ok || spec.Bucket != time.Minute {
-		t.Errorf("default window should be 24h, got %+v %v", spec, ok)
+	if spec, ok := parseWindow(""); !ok || spec.Bucket != time.Minute || spec.Source != store.SourceRaw {
+		t.Errorf("default window should be 24h/raw, got %+v %v", spec, ok)
 	}
 	for _, bad := range []string{"6d", "1y", "never", "0"} {
 		if _, ok := parseWindow(bad); ok {
