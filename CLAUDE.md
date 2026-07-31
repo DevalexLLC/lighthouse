@@ -53,7 +53,7 @@ Full design + milestone plan: `docs/architecture.md`.
   editing `0001_init.sql` is fine; recreate dev DBs with `down -v`.
 - Conventional Commits (`feat(scope): ...`); see CONTRIBUTING.md.
 
-## Status (as of 2026-07-30)
+## Status (as of 2026-07-31)
 
 - M0 (scaffolding, strict config, compose stack) — done.
 - M1 (protos, CA, enrollment, mTLS session, revocation) — done; verified
@@ -103,7 +103,20 @@ Full design + milestone plan: `docs/architecture.md`.
   jobs listed; a migrated-then-stripped scratch DB made serve exit
   `preflight: timescaledb_toolkit extension is not installed …`; re-run
   `make seed` left row counts identical; matrix/outages/path-events
-  regression-clean; offline `make build`/`make test` green.
+  regression-clean; offline `make build`/`make test` green. Follow-up
+  (pre-release, so 0006/0007 were rewritten in place rather than adding
+  migrations): the caggs now partition by successful timing family so RTT
+  never mixes with TCP/application timings, `PairLatencySource` applies a
+  5 % coverage floor, and the SPA surfaces per-probe health, honest chart
+  gaps, adaptive loss scales, responsive tables, and operator-first
+  outage/path details. Re-verified on a fresh compose stack: 0001→0010
+  auto-migrated (family-partitioned caggs, `latency_source` column,
+  2 refresh + 3 retention jobs); `make seed` percentiles within 0.3 % via
+  the API; 90 d pair `source: hourly` in ~50 ms with per-direction
+  `latency_source: rtt` and per-probe `checks`; 365 d `daily` (91 points,
+  percentiles present); 24h raw with percentile keys absent;
+  matrix/outages regression-clean (tcp `conn_refused` cells + 6 open
+  `probe_failing` are the dev mesh's intentional port-9 TCP probe).
 - Next: M6+ — see the milestone table in `docs/architecture.md`.
 
 ### M2 notes worth knowing
@@ -204,20 +217,28 @@ Full design + milestone plan: `docs/architecture.md`.
   (`percentile_agg`); `probe_results_daily` is a hierarchical `rollup()`
   of hourly. Never add an `avg()` (or any non-re-aggregable) column to a
   cagg — daily would silently produce wrong numbers. Averages are always
-  `sum/count` at query time.
+  `sum/count` at query time. Hourly rows are also partitioned by
+  `latency_source` (the row's timing family), and all timing statistics
+  include successful probes only — a fast failure must never read as low
+  latency.
 - The COALESCE latency ladder exists in TWO places: `latencyExpr` in
-  `store/dashboard.go` and frozen inside `0006_m5_hourly_cagg.notx.sql`
-  (shipped migrations are immutable). Changing the ladder needs a new
-  cagg version, or raw and aggregate windows will disagree.
+  `store/dashboard.go` and frozen inside `0006_m5_hourly_cagg.notx.sql`.
+  Once a release ships, changing the ladder requires a forward-only cagg
+  rebuild, or raw and aggregate windows will disagree.
 - Window→source: 24h/7d→raw, 30/90d→hourly, 365d→daily
   (`httpapi/windows.go`, pinned by `TestWindows`). Aggregate-sourced
   responses carry `p50_us/p95_us/p99_us` (omitted, not null, on raw
   windows — clients key off absence) and every pair/series response has
   `source`. Matrix/DirectionLatest stay on raw (10-min horizon).
-- `latency_source` = newest raw row **whose COALESCE latency is non-NULL**
-  bounded 14 d (`PairLatencySource`); without the non-NULL filter the
-  label flickers to "" whenever a traceroute or failed probe is
-  momentarily newest.
+- `PairLatencySource` chooses one successful family per direction/window in
+  priority order RTT→TCP connect→TLS handshake→TTFB→total, with a 5 %
+  coverage floor (`chooseLatencySource`, unit-tested offline): a family
+  must hold ≥5 % of the window's successful latency samples to win, so a
+  just-enabled ICMP prober can't blank a 365 d chart of TCP history; if
+  nothing clears the floor, the purest family present wins. Pair summaries
+  and latency series filter to that family; loss continues to fold all probes.
+  Series responses carry a source per direction (the legacy top-level field
+  remains the A→B compatibility alias).
 - Policy offsets are ordered on purpose: hourly refresh `start_offset` 8 d
   > agent spool `max_age` 7 d (late replay lands refreshable) and < raw
   retention 14 d (refresh never reads a dropped region); daily 10 d >

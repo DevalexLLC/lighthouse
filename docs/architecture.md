@@ -87,7 +87,7 @@ Raw hypertable `probe_results` (1-day chunks; narrow fixed-width columns: loss_p
 
 **Percentiles: TimescaleDB Toolkit `percentile_agg` (UddSketch)** — rollup-able, so daily aggregates derive from hourly and `approx_percentile(0.5|0.95|0.99, rollup(...))` answers any window. Toolkit is a hard dependency: preflight fails loud if the extension is missing (ships in `timescale/timescaledb-ha`).
 
-Continuous aggregates: `probe_results_hourly` (from raw: samples, ok_samples, min/max/avg rtt, `percentile_agg`, jitter, sent/received, tcp/tls times) and `probe_results_daily` (rollup of hourly). Retention: raw 14d, hourly 100d, daily 400d. Window→source: 7d→raw/hourly, 30/90d→hourly, 365d→daily; API responses include `resolution` so charts are labeled honestly.
+Continuous aggregates: `probe_results_hourly` (from raw: samples, ok_samples, successful-only timing statistics partitioned by timing family, `percentile_agg`, jitter, sent/received, tcp/tls times) and `probe_results_daily` (rollup of hourly). Pair queries select one coherent family per direction—RTT first, then connect/application fallbacks, gated by a minimum-coverage floor (≥5% of the window's successful samples) so a freshly enabled prober cannot blank long-window history—while loss still folds all probes. Retention: raw 14d, hourly 100d, daily 400d. Window→source: 24h/7d→raw, 30/90d→hourly, 365d→daily; API responses include `resolution` and directional `latency_source` so charts are labeled honestly.
 
 ## Agent probe engine
 
@@ -114,7 +114,7 @@ Continuous aggregates: `probe_results_hourly` (from raw: samples, ok_samples, mi
 
 `/api/v1/*` JSON, separate from agent gRPC. **Auth: local users + PG-backed sessions** (argon2id, HttpOnly/Secure/SameSite cookie, CSRF token; roles `admin`/`viewer`; first admin via `lighthouse-server user add --admin`) — air-gap-safe and revocable, no OIDC dependency.
 
-Endpoints: auth (login/logout/me); `sites`, `agents`; `matrix` (site×site grid, per-direction status/rtt/loss); `pairs/{a}/{b}?window=` (both directions: current, min/avg/max/p50/p95/p99, loss, jitter, tcp/tls, last_ok_at); `pairs/{a}/{b}/series?metric=&window=7d|30d|90d|365d`; `outages`; `path-events`; `traceroute/{src}/{dst}`; admin CRUD for probe-configs/targets/mesh-groups; join-token issue/list; cert revoke.
+Endpoints: auth (login/logout/me); `sites`, `agents`; `matrix` (site×site grid, per-direction status plus per-probe checks); `pairs/{a}/{b}?window=` (both directions: current checks, coherent min/avg/max/p50/p95/p99, loss, jitter, tcp/tls, last_ok_at); `pairs/{a}/{b}/series?metric=&window=7d|30d|90d|365d` (directional latency sources); `outages`; `path-events`; `traceroute/{src}/{dst}`; admin CRUD for probe-configs/targets/mesh-groups; join-token issue/list; cert revoke.
 
 ## CA / cert lifecycle
 
