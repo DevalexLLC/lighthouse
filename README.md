@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/lighthouse-mark-dark.svg">
+    <img src="docs/assets/lighthouse-mark-light.svg" alt="" width="96" height="96">
+  </picture>
+</p>
+
 # Lighthouse
 
 Real-time visibility into connectivity, latency, packet loss, and service

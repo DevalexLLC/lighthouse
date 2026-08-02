@@ -140,7 +140,12 @@ Full design + milestone plan: `docs/architecture.md`.
   `prefers-reduced-motion`.
 - Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
   the header, login page, loading state, and favicon; it has no runtime
-  network or font dependency. Public navigation is task-oriented; legacy
+  network or font dependency. The README shows the same mark via
+  `<picture>` with per-theme copies in `docs/assets/` (GitHub theme
+  switching can't use the app SVG's embedded media query, which tracks
+  the OS scheme); keep all three files' geometry in lockstep. They live
+  outside `web/public/` on purpose — anything there is copied into
+  `web/dist/` at the next build. Public navigation is task-oriented; legacy
   route ids remain aliases and API/path-hop vocabulary is unchanged.
 - Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries
   enrolled_at, config_hash, newest-cert not_after/revoked_at, open

@@ -1,0 +1,12 @@
+<!-- README-only light-theme variant of web/public/lighthouse-mark.svg.
+     GitHub's <picture> theme switching needs per-theme files (an embedded
+     prefers-color-scheme query tracks the OS, not the GitHub theme).
+     Keep the geometry in lockstep with the app mark. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Lighthouse</title>
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#123b3a" stroke-width="4"/>
+  <path fill="#ffd166" d="M27 25 10 20v10l17-4zm10 0 17-5v10l-17-4z"/>
+  <path fill="#f05a47" d="m13 16-10 9 10 9v-6l14-2v-2l-14-2zm38 0v6l-14 2v2l14 2v6l10-9z"/>
+  <path fill="#123b3a" d="m32 13-9 8v4h3v9h12v-9h3v-4zm-5 24-4 21h18l-4-21zm2-11h6v5h-6z"/>
+  <circle fill="#ffd166" cx="32" cy="13" r="2.5"/>
+</svg>
