@@ -1,22 +1,37 @@
 import { useEffect, useState } from 'react'
 import { apiGet } from '../api'
-import ThresholdSettingsPanel from '../components/ThresholdSettings'
 import WorldMap from '../components/WorldMap'
-import type { AgentsResponse, MatrixCell, MatrixResponse, SettingsResponse } from '../types'
-import { fmtAgo, fmtLatency } from '../format'
+import { directionSeverity, SEVERITY_LABEL, type Severity } from '../severity'
+import type { MatrixCell, MatrixResponse, SettingsResponse, ThresholdSettings } from '../types'
+import { fmtLatency } from '../format'
 
 const POLL_MS = 30_000
 
-// Status is never conveyed by color alone: cells carry the status word or a
-// latency figure, and the legend pairs every swatch with its label.
-const STATUS_LABEL: Record<string, string> = {
-  ok: 'OK',
-  degraded: 'Degraded',
-  down: 'Down',
-  stale: 'Stale',
+// Matrix cells grade through the same directionSeverity fold as the map and
+// Overview — the raw API status alone would call a threshold-violating
+// direction "Healthy" while the other two views show it Degraded. Severity →
+// cell visual class: warn and crit both render the shared "Degraded"
+// treatment (crit's stronger intensity lives in detailed views).
+type CellClass = 'ok' | 'degraded' | 'down' | 'stale'
+const SEV_CLASS: Record<Severity, CellClass> = {
+  ok: 'ok',
+  warn: 'degraded',
+  crit: 'degraded',
+  down: 'down',
+  stale: 'stale',
 }
 
-function Cell({ cell }: { cell: MatrixCell }) {
+// Status is never conveyed by color alone: cells carry the status word or a
+// latency figure, and the legend pairs every swatch with its label.
+const CLASS_LABEL: Record<CellClass, string> = {
+  ok: SEVERITY_LABEL.ok,
+  degraded: SEVERITY_LABEL.warn,
+  down: SEVERITY_LABEL.down,
+  stale: SEVERITY_LABEL.stale,
+}
+
+function Cell({ cell, thresholds }: { cell: MatrixCell; thresholds: ThresholdSettings | null }) {
+  const cls = SEV_CLASS[directionSeverity(cell, thresholds)]
   const failed = cell.probes.filter((p) => p.status !== 'ok').length
   const total = cell.probes.length
   const detail = cell.probes
@@ -27,44 +42,45 @@ function Cell({ cell }: { cell: MatrixCell }) {
         `${p.loss_pct != null && p.loss_pct > 0 ? ` · ${p.loss_pct.toFixed(0)}% loss` : ''}`,
     )
     .join(', ')
-  const healthy = cell.status === 'ok' || cell.status === 'degraded'
-  const checksWord = total === 1 ? 'check' : 'checks'
-  // Partial packet loss can ride on an all-OK cell; keep it at a glance.
-  const loss = healthy && cell.loss_pct != null && cell.loss_pct > 0 ? ` · ${cell.loss_pct.toFixed(0)}% loss` : ''
-  const sub =
+  const hasLatency = cell.status === 'ok' || cell.status === 'degraded'
+  const checks =
     cell.status === 'stale'
-      ? 'no recent data'
+      ? 'No recent data'
       : cell.status === 'ok'
-        ? `${total} ${checksWord} OK${loss}`
-        : `${failed} of ${total} ${checksWord} failed${loss}`
+        ? `${total}/${total} checks healthy`
+        : `${failed}/${total} checks failed`
+  // The API intentionally reports the best working latency and the worst
+  // probe loss. Label that fold explicitly so mixed checks never read as a
+  // single direction simultaneously succeeding and losing every packet.
+  const worstLoss = cell.loss_pct != null && cell.loss_pct > 0
+    ? ` · worst probe ${cell.loss_pct.toFixed(0)}% loss`
+    : ''
   return (
-    <td className={'cell status-' + cell.status}>
+    <td className={'cell status-' + cls}>
       <a
         href={`#/pair/${encodeURIComponent(cell.src)}/${encodeURIComponent(cell.dst)}`}
-        title={`${cell.src} → ${cell.dst} · ${STATUS_LABEL[cell.status]} · ${detail}`}
-        aria-label={`${cell.src} to ${cell.dst}: ${STATUS_LABEL[cell.status]}. ${sub}. ${detail}`}
+        title={`${cell.src} → ${cell.dst} · ${CLASS_LABEL[cls]} · ${detail}`}
+        aria-label={`${cell.src} to ${cell.dst}: ${CLASS_LABEL[cls]}. ${checks}${worstLoss}. ${detail}`}
       >
+        <span className="cell-status">
+          <span className={'dot swatch status-' + cls} />
+          {CLASS_LABEL[cls]}
+        </span>
         <span className="cell-value">
-          {healthy ? fmtLatency(cell.latency_us) : STATUS_LABEL[cell.status]}
+          {hasLatency ? fmtLatency(cell.latency_us) : '—'}
         </span>
         <span className="cell-sub">
-          {sub}
+          {checks}{worstLoss}
         </span>
       </a>
     </td>
   )
 }
 
-export default function Matrix({
-  onAuthError,
-  isAdmin,
-}: {
-  onAuthError: (err: unknown) => void
-  isAdmin: boolean
-}) {
+export default function Matrix({ onAuthError }: { onAuthError: (err: unknown) => void }) {
   const [data, setData] = useState<MatrixResponse | null>(null)
-  const [agents, setAgents] = useState<AgentsResponse | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
+  const [mode, setMode] = useState<'map' | 'matrix'>('map')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -74,13 +90,11 @@ export default function Matrix({
       // everywhere within one cycle.
       Promise.all([
         apiGet<MatrixResponse>('/api/v1/matrix'),
-        apiGet<AgentsResponse>('/api/v1/agents'),
         apiGet<SettingsResponse>('/api/v1/settings'),
       ])
-        .then(([m, a, s]) => {
+        .then(([m, s]) => {
           if (!cancelled) {
             setData(m)
-            setAgents(a)
             setSettings(s)
             setError('')
           }
@@ -97,21 +111,23 @@ export default function Matrix({
     }
   }, [onAuthError])
 
-  if (error && !data) return <p className="error">Failed to load sightlines: {error}</p>
-  if (!data) return <p className="muted">Loading…</p>
+  if (error && !data) return <div className="state-panel state-error"><h1>Connectivity unavailable</h1><p>{error}</p></div>
+  if (!data) return <div className="state-panel" role="status"><span className="state-spinner" />Loading connectivity…</div>
 
   const cellFor = new Map<string, MatrixCell>()
   for (const c of data.cells) cellFor.set(c.src + ' ' + c.dst, c)
   const sites = data.sites
-  const counts = { ok: 0, degraded: 0, down: 0, stale: 0 }
-  for (const c of data.cells) counts[c.status]++
+  const thresholds = settings?.thresholds ?? null
+  const counts: Record<CellClass, number> = { ok: 0, degraded: 0, down: 0, stale: 0 }
+  for (const c of data.cells) counts[SEV_CLASS[directionSeverity(c, thresholds)]]++
 
   return (
     <>
-      <div className="page-head">
+      <div className="page-head page-head-primary">
         <div>
-          <div className="eyebrow">Signal board</div>
-          <h2>Sightlines</h2>
+          <div className="eyebrow">Operations</div>
+          <h1>Connectivity</h1>
+          <p>Inspect the topology or compare every monitored direction.</p>
         </div>
         <div className="chips">
           <span className="chip">
@@ -122,35 +138,37 @@ export default function Matrix({
               counts[s] > 0 && (
                 <span key={s} className="chip">
                   <span className={'dot swatch status-' + s} />
-                  {STATUS_LABEL[s].toLowerCase()} <span className="mono">{counts[s]}</span>
+                  {CLASS_LABEL[s].toLowerCase()} <span className="mono">{counts[s]}</span>
                 </span>
               ),
           )}
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head">
-          <span className="eyebrow">Site map</span>
-          <ThresholdSettingsPanel
-            settings={settings}
-            isAdmin={isAdmin}
-            onSaved={setSettings}
-            onAuthError={onAuthError}
-          />
+      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+
+      <div className="view-toolbar">
+        <div className="control-group" role="group" aria-label="Connectivity view">
+          <button className={mode === 'map' ? 'active' : ''} aria-pressed={mode === 'map'} onClick={() => setMode('map')}>Map</button>
+          <button className={mode === 'matrix' ? 'active' : ''} aria-pressed={mode === 'matrix'} onClick={() => setMode('matrix')}>Matrix</button>
         </div>
-        <WorldMap
-          sites={sites}
-          cells={data.cells}
-          thresholds={settings ? settings.thresholds : null}
-        />
+        <span className="freshness">Latest {Math.round(data.horizon_s / 60)}-minute probe horizon</span>
       </div>
 
-      <div className="card">
+      {mode === 'map' ? (
+        <div className="card connectivity-map-card">
+          <div className="card-head">
+            <div><span className="eyebrow">Topology</span><h2>Site map</h2></div>
+            <span className="hint">Select a site to isolate its links</span>
+          </div>
+          <WorldMap sites={sites} cells={data.cells} thresholds={settings?.thresholds ?? null} />
+        </div>
+      ) : (
+      <div className="card connectivity-matrix-card">
         <div className="card-head">
-          <span className="eyebrow">Source sites probe destination sites</span>
+          <div><span className="eyebrow">Directional comparison</span><h2>Connectivity matrix</h2></div>
           <span className="hint">
-            last {Math.round(data.horizon_s / 60)} min
+            Rows are sources · columns are destinations
             {error ? ' · refresh failed, showing last data' : ''}
           </span>
         </div>
@@ -188,7 +206,7 @@ export default function Matrix({
                             not probed
                           </td>
                         )
-                      return <Cell key={dst.name} cell={cell} />
+                      return <Cell key={dst.name} cell={cell} thresholds={thresholds} />
                     })}
                   </tr>
                 ))}
@@ -199,53 +217,12 @@ export default function Matrix({
         <div className="legend">
           {(['ok', 'degraded', 'down', 'stale'] as const).map((s) => (
             <span key={s} className="legend-item">
-              <span className={'swatch status-' + s} /> {STATUS_LABEL[s]}
+              <span className={'swatch status-' + s} /> {CLASS_LABEL[s]}
             </span>
           ))}
         </div>
       </div>
-
-      <div className="card">
-        <div className="card-head">
-          <span className="eyebrow">Agents</span>
-          <span className="hint">an agent is live when its config stream is connected</span>
-        </div>
-        {!agents || agents.agents.length === 0 ? (
-          <p className="muted">No agents enrolled yet.</p>
-        ) : (
-          <div className="scroll-x">
-            <table className="agents">
-              <thead>
-                <tr>
-                  <th className="eyebrow">site</th>
-                  <th className="eyebrow">hostname</th>
-                  <th className="eyebrow">probe address</th>
-                  <th className="eyebrow">version</th>
-                  <th className="eyebrow">last seen</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agents.agents.map((a) => {
-                  const seconds = a.last_seen_at
-                    ? (Date.now() - new Date(a.last_seen_at).getTime()) / 1000
-                    : Infinity
-                  return (
-                    <tr key={a.id}>
-                      <td className="mono" data-label="Site">{a.site}</td>
-                      <td className="mono" data-label="Hostname">{a.hostname}</td>
-                      <td className="mono" data-label="Probe address">{a.probe_address || '—'}</td>
-                      <td className="mono" data-label="Version">{a.version || '—'}</td>
-                      <td data-label="Last seen" className={seconds < 120 ? 'seen-live' : 'seen-gone'}>
-                        {fmtAgo(a.last_seen_at)}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      )}
     </>
   )
 }

@@ -53,38 +53,95 @@ Full design + milestone plan: `docs/architecture.md`.
   editing `0001_init.sql` is fine; recreate dev DBs with `down -v`.
 - Conventional Commits (`feat(scope): ...`); see CONTRIBUTING.md.
 
-## Status (as of 2026-07-31)
+## Status (as of 2026-08-01)
 
-- Sightlines world map: the `#/` view leads with an SVG world map — site
+- Dashboard information architecture and visual system were unified for
+  public use. `#/` is now the operator Overview (availability, healthy
+  directions, correlated active-incident count, fleet attention, topology,
+  and recent route changes); `#/connectivity` owns the map/matrix switch;
+  primary navigation is Overview, Connectivity, Incidents, Routes, and
+  Agents; the user menu holds identity, role, logout, and admin-only Settings.
+  The legacy `#/outages`, `#/paths`, and
+  `#/sightlines` hashes remain aliases so bookmarks keep working. The
+  standard shell now has task-oriented labels, a keyboard skip control,
+  consistent page/toolbar/loading/error/empty patterns,
+  responsive layouts, and AA-safe semantic text colors. Incidents correlate
+  rows by active/resolved state, kind, probe, and normalized error, with
+  active/all/resolved filters, search, impact counts, and expandable target
+  detail. Routes and Agents gained task-specific search and health filters;
+  thresholds moved from the map into Settings; Pair Detail and Login now use
+  the shared hierarchy. All API contracts and polling behavior are unchanged.
+
+- Screenshot-led polish corrected semantic and density problems across the
+  shell: Overview summary accents now reflect each value instead of defaulting
+  to green; Settings initializes server values and disables Save until dirty;
+  matrix cells label best working latency separately from worst-probe loss;
+  matrix cells, header chips, and the matrix legend grade through the same
+  directionSeverity fold as the map and Overview (warn/crit render the
+  shared Degraded treatment), so a threshold-violating direction can never
+  read Healthy in one connectivity mode and Degraded in the other;
+  route rows and incident targets disclose 25/10 items at a time; toolbars,
+  supporting type, Login proportions, and responsive form layouts are aligned.
+  The user menu is the sole entry point for admin Settings. Overview fleet
+  attention names the most severe trigger (cert, offline, never connected,
+  failing probes, drops) and counts spool drops only within the last 24 h —
+  never the lifetime `dropped_results` total, which would flag forever.
+  Exactly antipodal site pairs get a deterministic nudged geodesic instead
+  of a degenerate slerp. Agents' Attention filter partitions the fleet on
+  needsAttention (not healthy OR cert inside the 30-day warning window OR
+  spool drops in the last 24 h — in lockstep with Overview's
+  attentionReason) so All = Attention + Healthy, the two views always
+  agree, and a row whose cert cell shows a degraded-styled warning can
+  never sort under Healthy; counts labeled "affected targets" dedupe per
+  rendered target (the API emits one event per failing series); incident
+  groups key on the FULL normalized error (truncation is display-only, so
+  long errors sharing a prefix never merge); the Settings page polls
+  /settings every 30 s like other views and the threshold form clears its
+  draft after a save, so transient failures retry and remote edits
+  converge instead of being shadowed by a stale draft; the map inspector's
+  link count/best latency cover monitored pairs with unplaced peers (only
+  carrier drawing needs both endpoints placed).
+
+- Shared topology map: `#/connectivity` switches between the SVG map and
+  directional matrix; Overview renders the same map as a compact preview. Site
   dots at `sites.latitude/longitude` (nullable, both-or-neither CHECK; set
   via the new `lighthouse-server site list|set` CLI, never at enrollment;
   unplaced sites render in a fail-loud chip strip, never vanish) and one
-  animated line per site pair, colored by a client-side severity fold
+  great-circle carrier per site pair, colored by a client-side severity fold
   (`web/src/severity.ts`: status first — down/stale can't look healthy —
   then shared warn/crit thresholds on the cell's headline latency/loss;
   rank ok<warn<stale<crit<down). Thresholds live in the single-row
   `dashboard_settings` table, served by `GET /api/v1/settings` (any
   session) and `PUT /api/v1/settings` — the first `requireRole("admin")`
   endpoint (withSession outermost; CSRF applies) — and are edited from a
-  panel on the map card (ms/% form, mirrors server validation; server
+  form on the Settings page (ms/% form, mirrors server validation; server
   names every problem, `DisallowUnknownFields`). Settings ride the
-  existing 30 s matrix poll, so other browsers converge ≤30 s. The world
-  outline is vendored: `web/src/assets/worldPath.ts` (~28 KB, Natural
-  Earth 110m land, pre-projected equirectangular 720×300, Antarctica
-  cropped) regenerated only by `web/tools/build-world-path.mjs` (dev
-  tooling, documented in its header; nothing fetched at build or
-  runtime). Schema landed by editing 0001/0003 in place (pre-release
+  existing 30 s matrix poll, so other browsers converge ≤30 s. The map now
+  uses vendored Natural Earth I geometry (`assets/mapGeo.ts`), projection
+  (`geo.ts`), country/graticule detail,
+  antimeridian-safe geodesics with paired seam markers, collision-aware site
+  labels, and a visible hover/focus inspector (code, location, health,
+  monitored-link count, and best live latency). The map remains inside the
+  standard responsive Lighthouse card. Schema landed by editing 0001/0003 in place (pre-release
   convention) — existing dev DBs need `down -v`. Verified on a fresh
   compose stack through the proxy: CLI set/list + typo/range errors,
   settings round-trip/validation/403 viewer/401 anon, coords in
-  sites+matrix payloads, defaults restored; browser-visual map pass
-  happens on a machine with a browser.
+  sites+matrix payloads, defaults restored. Vocabulary: the map's warn and crit
+  tiers are both publicly labeled "Degraded"; crit remains an internal
+  stronger visual intensity, not a competing health state. Direction/series colors
+  are categorical blue + magenta (`--series-a`/`--series-b`, mirrored in
+  `PairDetail.tsx` COLORS): never orange, which would read as the
+  crit/down alarm ramp; the magenta passes CVD+contrast on both schemes.
+  Live feel: subdued cyan/amber/red/gray carriers use the operations palette, while
+  a sparse animated stroke pulse runs once per probed, flowing *direction*;
+  duration is scaled to chord length and staggered deterministically. An
+  unconfigured, down, or stale direction gets no pulse — nothing is flowing,
+  don't pretend. Pulses and alarm halos are removed under
+  `prefers-reduced-motion`.
 - Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
   the header, login page, loading state, and favicon; it has no runtime
-  network or font dependency. Nav views are themed: Sightlines (site
-  matrix), Outages, Passages (path changes), Agents — display names only;
-  route ids, API paths, and the path/hop vocabulary inside views are
-  unchanged.
+  network or font dependency. Public navigation is task-oriented; legacy
+  route ids remain aliases and API/path-hop vocabulary is unchanged.
 - Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries
   enrolled_at, config_hash, newest-cert not_after/revoked_at, open
   outage rollups (offline flag + probes_failing count), series totals,

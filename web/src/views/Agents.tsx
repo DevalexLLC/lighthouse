@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
 import { fmtAgo, fmtTime } from '../format'
 import type { AgentInfo, AgentsResponse } from '../types'
@@ -7,6 +7,7 @@ const POLL_MS = 30_000
 const CERT_WARN_DAYS = 30
 
 type Health = 'ok' | 'degraded' | 'down' | 'stale'
+type FleetFilter = 'all' | 'attention' | 'healthy'
 
 // Health folds the server's signals in severity order: an unusable cert
 // (revoked or expired) or an open agent_offline outage beats everything;
@@ -21,11 +22,27 @@ function health(a: AgentInfo): { status: Health; label: string } {
   if (a.offline) return { status: 'down', label: 'offline' }
   if (!a.last_seen_at) return { status: 'stale', label: 'never seen' }
   if (a.probes_failing > 0) return { status: 'degraded', label: 'degraded' }
-  return { status: 'ok', label: 'ok' }
+  return { status: 'ok', label: 'healthy' }
 }
 
 function certDaysLeft(notAfter: string): number {
   return Math.floor((new Date(notAfter).getTime() - Date.now()) / 86_400_000)
+}
+
+// Attention = not healthy OR spool drops in the last 24 h. Must stay in
+// lockstep with Overview's attentionReason so the fleet card there and the
+// Attention filter here always agree on which agents need a look. Drops
+// stay out of health() — they don't make the agent's link unhealthy, they
+// mean data was lost.
+const DROP_ATTENTION_MS = 24 * 60 * 60 * 1000
+
+function needsAttention(a: AgentInfo): boolean {
+  if (health(a).status !== 'ok') return true
+  // CertCell renders the ≤CERT_WARN_DAYS window in degraded styling; a row
+  // carrying that warning must not sort under Healthy — renewal is
+  // actionable now, not at expiry.
+  if (a.cert_not_after && certDaysLeft(a.cert_not_after) <= CERT_WARN_DAYS) return true
+  return a.last_dropped_at != null && Date.now() - Date.parse(a.last_dropped_at) < DROP_ATTENTION_MS
 }
 
 function CertCell({ a }: { a: AgentInfo }) {
@@ -109,6 +126,8 @@ function Row({ a }: { a: AgentInfo }) {
 export default function Agents({ onAuthError }: { onAuthError: (err: unknown) => void }) {
   const [data, setData] = useState<AgentsResponse | null>(null)
   const [error, setError] = useState('')
+  const [filter, setFilter] = useState<FleetFilter>('all')
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -132,19 +151,36 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
     }
   }, [onAuthError])
 
-  if (error && !data) return <p className="error">Failed to load agents: {error}</p>
-  if (!data) return <p className="muted">Loading…</p>
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return (data?.agents ?? []).filter((agent) => {
+      // The two filters partition the fleet on needsAttention — including
+      // never-seen (stale) agents and recent spool drops — so the button
+      // counts always match the rows they reveal.
+      if (filter === 'attention' && !needsAttention(agent)) return false
+      if (filter === 'healthy' && needsAttention(agent)) return false
+      if (!needle) return true
+      return [agent.site, agent.hostname, agent.probe_address, agent.version]
+        .some((value) => value.toLowerCase().includes(needle))
+    })
+  }, [data, filter, query])
+
+  if (error && !data) return <div className="state-panel state-error"><h1>Agents unavailable</h1><p>{error}</p></div>
+  if (!data) return <div className="state-panel" role="status"><span className="state-spinner" />Loading agents…</div>
 
   const down = data.agents.filter((a) => health(a).status === 'down').length
   const degraded = data.agents.filter((a) => health(a).status === 'degraded').length
   const dropsTotal = data.agents.reduce((sum, a) => sum + a.dropped_results, 0)
+  const attention = data.agents.filter(needsAttention).length
+  const healthy = data.agents.length - attention
 
   return (
     <>
-      <div className="page-head">
+      <div className="page-head page-head-primary">
         <div>
-          <div className="eyebrow">Fleet health</div>
-          <h2>Agents</h2>
+          <div className="eyebrow">Operations</div>
+          <h1>Agents</h1>
+          <p>Connection, probe, certificate, configuration, and spool health.</p>
         </div>
         <div className="chips">
           <span className="chip">
@@ -164,17 +200,27 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
         </div>
       </div>
 
+      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+
+      <div className="view-toolbar">
+        <div className="control-group" role="group" aria-label="Agent health">
+          <button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {data.agents.length}</button>
+          <button className={filter === 'attention' ? 'active' : ''} aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>Attention {attention}</button>
+          <button className={filter === 'healthy' ? 'active' : ''} aria-pressed={filter === 'healthy'} onClick={() => setFilter('healthy')}>Healthy {healthy}</button>
+        </div>
+        <label className="search-field"><span className="sr-only">Search agents</span><input type="search" placeholder="Search site, host, or address" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+        <span className="freshness">Refreshes every {POLL_MS / 1000}s</span>
+      </div>
+
       <div className="card">
         <div className="card-head">
-          <span className="eyebrow">
-            one keeper per site host · refreshed every {POLL_MS / 1000}s
-          </span>
+          <div><span className="eyebrow">Fleet inventory</span><h2>Enrolled agents</h2></div>
           <span className="hint">
-            spool drops are lifetime totals{error ? ' · refresh failed, showing last data' : ''}
+            Spool drops are lifetime totals{error ? ' · refresh failed, showing last data' : ''}
           </span>
         </div>
-        {data.agents.length === 0 ? (
-          <p className="muted">No agents enrolled yet.</p>
+        {visible.length === 0 ? (
+          <div className="empty-state"><strong>{data.agents.length === 0 ? 'No agents enrolled' : 'No matching agents'}</strong><span>{data.agents.length === 0 ? 'Enroll an agent to begin monitoring a site.' : 'Change the health filter or search query.'}</span></div>
         ) : (
           <div className="scroll-x">
             <table className="events">
@@ -192,7 +238,7 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
                 </tr>
               </thead>
               <tbody>
-                {data.agents.map((a) => (
+                {visible.map((a) => (
                   <Row key={a.id} a={a} />
                 ))}
               </tbody>

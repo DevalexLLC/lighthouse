@@ -25,11 +25,13 @@ import { WINDOWS } from '../types'
 const POLL_MS = 60_000
 type Metric = 'latency' | 'loss'
 
-// Direction colors are categorical slots 1 (blue, outbound) and 2 (orange,
-// return), stepped per color scheme; both pairs validate CVD + contrast.
+// Direction colors are categorical slots 1 (blue, outbound) and 5 (magenta,
+// return) — never slot 2's orange, which reads as the crit/down alarm ramp.
+// Must stay in lockstep with --series-a/--series-b in styles.css; the magenta
+// validates CVD + contrast against blue on both surfaces, so it is unstepped.
 const COLORS = {
-  light: { aToB: '#2a78d6', bToA: '#eb6834', grid: '#e0dfd9', axis: '#55544d' },
-  dark: { aToB: '#3987e5', bToA: '#d95926', grid: '#30312d', axis: '#b9b8ae' },
+  light: { aToB: '#2a78d6', bToA: '#d55181', grid: '#e0dfd9', axis: '#55544d' },
+  dark: { aToB: '#3987e5', bToA: '#d55181', grid: '#30312d', axis: '#b9b8ae' },
 }
 
 function palette() {
@@ -67,6 +69,7 @@ function hasAnyValue(points: SeriesPoint[], metric: Metric): boolean {
 }
 
 function statusLabel(status: string): string {
+  if (status === 'ok') return 'Healthy'
   return status.replaceAll('_', ' ').replace(/^\w/, (c) => c.toUpperCase())
 }
 
@@ -189,7 +192,7 @@ function DirectionCard({
           </div>
         )}
         <div>
-          <dt>Last OK</dt>
+          <dt>Last healthy</dt>
           <dd title={fmtTime(s.last_ok_at)}>{fmtAgo(s.last_ok_at)}</dd>
         </div>
         <div>
@@ -364,8 +367,8 @@ export default function PairDetail({
     // Rebuild when metric changes (series shape differs).
   }, [metric])
 
-  if (error && !series) return <p className="error">Failed to load pair: {error}</p>
-  if (!series || !pair) return <p className="muted">Loading…</p>
+  if (error && !series) return <div className="state-panel state-error"><h1>Pair detail unavailable</h1><p>{error}</p></div>
+  if (!series || !pair) return <div className="state-panel" role="status"><span className="state-spinner" />Loading pair detail…</div>
 
   const withPctl = metric === 'latency' && series.source !== 'raw'
   const lossCeiling = lossScaleCeiling(series)
@@ -387,12 +390,11 @@ export default function PairDetail({
 
   return (
     <>
-      <div className="page-head">
+      <div className="page-head page-head-primary">
         <div>
-          <div className="eyebrow">Pair detail</div>
-          <h2>
-            <a href="#/">Sightlines</a> / {a} ⇄ {b}
-          </h2>
+          <div className="eyebrow"><a href="#/connectivity">Connectivity</a> / Pair detail</div>
+          <h1>{a} ⇄ {b}</h1>
+          <p>Directional health, measurements, and current network paths.</p>
         </div>
         <span className="sub">
           {bucketLabel}

@@ -4,29 +4,34 @@ import type { LoginResponse, User } from './types'
 import Agents from './views/Agents'
 import Login from './views/Login'
 import Matrix from './views/Matrix'
+import Overview from './views/Overview'
 import Outages from './views/Outages'
 import PairDetail from './views/PairDetail'
 import Paths from './views/Paths'
+import Settings from './views/Settings'
 
-// Hash routing: '#/' → matrix, '#/pair/{a}/{b}' → pair detail, '#/outages'
-// and '#/paths' → the event logs, '#/agents' → fleet health. Login is an
-// auth-gate state, not a route, so deep links survive a login round-trip.
+// Hash routing stays dependency-free and preserves the original route names
+// as aliases, so bookmarks survive the information-architecture cleanup.
 type Route =
-  | { view: 'matrix' }
+  | { view: 'overview' }
+  | { view: 'connectivity' }
   | { view: 'pair'; a: string; b: string }
-  | { view: 'outages' }
-  | { view: 'paths' }
+  | { view: 'incidents' }
+  | { view: 'routes' }
   | { view: 'agents' }
+  | { view: 'settings' }
 
 function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/')
   if (parts[0] === 'pair' && parts[1] && parts[2]) {
     return { view: 'pair', a: decodeURIComponent(parts[1]), b: decodeURIComponent(parts[2]) }
   }
-  if (parts[0] === 'outages') return { view: 'outages' }
-  if (parts[0] === 'paths') return { view: 'paths' }
+  if (parts[0] === 'connectivity' || parts[0] === 'sightlines') return { view: 'connectivity' }
+  if (parts[0] === 'incidents' || parts[0] === 'outages') return { view: 'incidents' }
+  if (parts[0] === 'routes' || parts[0] === 'paths') return { view: 'routes' }
   if (parts[0] === 'agents') return { view: 'agents' }
-  return { view: 'matrix' }
+  if (parts[0] === 'settings') return { view: 'settings' }
+  return { view: 'overview' }
 }
 
 export default function App() {
@@ -87,32 +92,45 @@ export default function App() {
 
   return (
     <div className="app">
+      <button
+        className="skip-link"
+        onClick={() => document.getElementById('main-content')?.focus()}
+      >
+        Skip to content
+      </button>
       <header className="topbar">
         <a className="brand" href="#/">
           <img className="logo-mark logo-mark-header" src="/lighthouse-mark.svg" alt="" />
           Lighthouse
         </a>
-        <nav className="topnav" aria-label="Views">
+        <nav className="topnav" aria-label="Primary navigation">
           <a
             href="#/"
-            className={route.view === 'matrix' || route.view === 'pair' ? 'active' : ''}
-            aria-current={route.view === 'matrix' || route.view === 'pair' ? 'page' : undefined}
+            className={route.view === 'overview' ? 'active' : ''}
+            aria-current={route.view === 'overview' ? 'page' : undefined}
           >
-            Sightlines
+            Overview
           </a>
           <a
-            href="#/outages"
-            className={route.view === 'outages' ? 'active' : ''}
-            aria-current={route.view === 'outages' ? 'page' : undefined}
+            href="#/connectivity"
+            className={route.view === 'connectivity' || route.view === 'pair' ? 'active' : ''}
+            aria-current={route.view === 'connectivity' || route.view === 'pair' ? 'page' : undefined}
           >
-            Outages
+            Connectivity
           </a>
           <a
-            href="#/paths"
-            className={route.view === 'paths' ? 'active' : ''}
-            aria-current={route.view === 'paths' ? 'page' : undefined}
+            href="#/incidents"
+            className={route.view === 'incidents' ? 'active' : ''}
+            aria-current={route.view === 'incidents' ? 'page' : undefined}
           >
-            Passages
+            Incidents
+          </a>
+          <a
+            href="#/routes"
+            className={route.view === 'routes' ? 'active' : ''}
+            aria-current={route.view === 'routes' ? 'page' : undefined}
+          >
+            Routes
           </a>
           <a
             href="#/agents"
@@ -123,23 +141,48 @@ export default function App() {
           </a>
         </nav>
         <div className="topbar-right">
-          <span className="username">
-            {user.username} <span className="role">· {user.role}</span>
-          </span>
-          <button className="linklike" onClick={logout}>
-            Log out
-          </button>
+          <details className={'user-menu' + (route.view === 'settings' ? ' user-menu-current' : '')}>
+            <summary aria-label={`Open user menu for ${user.username}`}>
+              <svg className="user-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M5.5 20c.5-4 2.7-6 6.5-6s6 2 6.5 6" />
+              </svg>
+            </summary>
+            <div className="user-menu-popover">
+              <div className="user-menu-identity">
+                <strong>{user.username}</strong>
+                <span>{user.role}</span>
+              </div>
+              {user.role === 'admin' && (
+                <a
+                  href="#/settings"
+                  aria-current={route.view === 'settings' ? 'page' : undefined}
+                  onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}
+                >
+                  Settings
+                </a>
+              )}
+              <button type="button" onClick={logout}>Log out</button>
+            </div>
+          </details>
         </div>
       </header>
-      <main>
-        {route.view === 'matrix' ? (
-          <Matrix onAuthError={onAuthError} isAdmin={user.role === 'admin'} />
+      <main id="main-content" tabIndex={-1}>
+        {route.view === 'overview' ? (
+          <Overview onAuthError={onAuthError} />
+        ) : route.view === 'connectivity' ? (
+          <Matrix onAuthError={onAuthError} />
         ) : route.view === 'pair' ? (
           <PairDetail a={route.a} b={route.b} onAuthError={onAuthError} />
-        ) : route.view === 'outages' ? (
+        ) : route.view === 'incidents' ? (
           <Outages onAuthError={onAuthError} />
         ) : route.view === 'agents' ? (
           <Agents onAuthError={onAuthError} />
+        ) : route.view === 'settings' ? (
+          <Settings
+            isAdmin={user.role === 'admin'}
+            onAuthError={onAuthError}
+          />
         ) : (
           <Paths onAuthError={onAuthError} />
         )}

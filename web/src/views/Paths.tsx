@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
 import { fmtAgo, fmtTime } from '../format'
 import type { Hop, PathEvent, PathEventsResponse, Window } from '../types'
 import { WINDOWS } from '../types'
 
 const POLL_MS = 30_000
+const ROUTE_PAGE = 25
 
 export function hopLabel(h: Hop | undefined): string {
   if (!h || h.addrs.length === 0) return '*'
@@ -105,6 +106,8 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
   const [win, setWin] = useState<Window>('24h')
   const [data, setData] = useState<PathEventsResponse | null>(null)
   const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [visibleLimit, setVisibleLimit] = useState(ROUTE_PAGE)
 
   useEffect(() => {
     let cancelled = false
@@ -128,15 +131,28 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
     }
   }, [win, onAuthError])
 
-  if (error && !data) return <p className="error">Failed to load passages: {error}</p>
-  if (!data) return <p className="muted">Loading…</p>
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return data?.events ?? []
+    return (data?.events ?? []).filter((event) =>
+      [event.src_site, event.dst_site, event.target, event.agent]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
+    )
+  }, [data, query])
+
+  useEffect(() => setVisibleLimit(ROUTE_PAGE), [query, win])
+
+  if (error && !data) return <div className="state-panel state-error"><h1>Routes unavailable</h1><p>{error}</p></div>
+  if (!data) return <div className="state-panel" role="status"><span className="state-spinner" />Loading route changes…</div>
 
   return (
     <>
-      <div className="page-head">
+      <div className="page-head page-head-primary">
         <div>
-          <div className="eyebrow">Route watch</div>
-          <h2>Passages</h2>
+          <div className="eyebrow">Operations</div>
+          <h1>Routes</h1>
+          <p>Traceroute changes that may explain latency shifts and connectivity failures.</p>
         </div>
         <div className="chips">
           <span className="chip">
@@ -145,7 +161,10 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
         </div>
       </div>
 
-      <div className="controls">
+      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+
+      <div className="view-toolbar">
+        <label className="search-field"><span className="sr-only">Search routes</span><input type="search" placeholder="Search source, destination, or agent" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
         <div className="control-group" role="group" aria-label="Window">
           {WINDOWS.map((w) => (
             <button
@@ -162,16 +181,29 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
 
       <div className="card">
         <div className="card-head">
-          <span className="eyebrow">a change is a new sha256 over the hop sequence</span>
+          <div><span className="eyebrow">Change log</span><h2>Path changes</h2></div>
           <span className="hint">
-            traceroutes run on a slower cadence than other probes
+            Traceroutes run on a slower cadence than other probes
             {error ? ' · refresh failed, showing last data' : ''}
           </span>
         </div>
-        {data.events.length === 0 ? (
-          <p className="muted">No path changes in this window. Routes are holding.</p>
+        {visible.length === 0 ? (
+          <div className="empty-state"><strong>{query ? 'No matching route changes' : 'Routes stable'}</strong><span>{query ? 'Try a different site or agent.' : 'No path changes in this window.'}</span></div>
         ) : (
-          data.events.map((e) => <EventRow key={e.id} e={e} />)
+          <>
+            {visible.slice(0, visibleLimit).map((e) => <EventRow key={e.id} e={e} />)}
+            {visibleLimit < visible.length && (
+              <div className="progressive-footer">
+                <span className="hint">Showing {visibleLimit} of {visible.length} route changes</span>
+                <button
+                  className="secondary-button"
+                  onClick={() => setVisibleLimit((limit) => Math.min(visible.length, limit + ROUTE_PAGE))}
+                >
+                  Show {Math.min(ROUTE_PAGE, visible.length - visibleLimit)} more
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

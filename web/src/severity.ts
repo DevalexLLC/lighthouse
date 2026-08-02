@@ -18,10 +18,13 @@ export const SEVERITY_RANK: Record<Severity, number> = {
   down: 4,
 }
 
+// Threshold tiers use the same public health vocabulary. `crit` remains an
+// internal intensity tier, but it is still degraded connectivity rather than
+// a competing health state.
 export const SEVERITY_LABEL: Record<Severity, string> = {
-  ok: 'OK',
-  warn: 'Warning',
-  crit: 'Critical',
+  ok: 'Healthy',
+  warn: 'Degraded',
+  crit: 'Degraded',
   stale: 'Stale',
   down: 'Down',
 }

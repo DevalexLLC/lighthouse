@@ -35,16 +35,16 @@ function validate(d: Draft): { errors: string[]; parsed: ThresholdSettings | nul
     }
     return n
   }
-  const warnMs = num('latency warning', d.latencyWarnMs)
+  const warnMs = num('latency degraded', d.latencyWarnMs)
   const critMs = num('latency critical', d.latencyCritMs)
-  const lossWarn = num('loss warning', d.lossWarnPct)
+  const lossWarn = num('loss degraded', d.lossWarnPct)
   const lossCrit = num('loss critical', d.lossCritPct)
   if (errors.length === 0) {
-    if (warnMs <= 0) errors.push('latency warning must be positive')
-    if (critMs <= warnMs) errors.push('latency critical must be greater than warning')
+    if (warnMs <= 0) errors.push('latency degraded must be positive')
+    if (critMs <= warnMs) errors.push('latency critical must be greater than degraded')
     if (critMs > MAX_LATENCY_CRIT_MS) errors.push(`latency critical must be at most ${MAX_LATENCY_CRIT_MS} ms`)
-    if (lossWarn < 0) errors.push('loss warning must not be negative')
-    if (lossCrit <= lossWarn) errors.push('loss critical must be greater than warning')
+    if (lossWarn < 0) errors.push('loss degraded must not be negative')
+    if (lossCrit <= lossWarn) errors.push('loss critical must be greater than degraded')
     if (lossCrit > 100) errors.push('loss critical must be at most 100%')
   }
   if (errors.length > 0) return { errors, parsed: null }
@@ -64,11 +64,13 @@ export default function ThresholdSettingsPanel({
   isAdmin,
   onSaved,
   onAuthError,
+  variant = 'popover',
 }: {
   settings: SettingsResponse | null
   isAdmin: boolean
   onSaved: (s: SettingsResponse) => void
   onAuthError: (err: unknown) => void
+  variant?: 'popover' | 'page'
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -86,15 +88,18 @@ export default function ThresholdSettingsPanel({
   }
 
   const save = async () => {
-    if (!draft) return
-    const { errors: errs, parsed } = validate(draft)
+    const current = draft ?? draftFrom(settings.thresholds)
+    const { errors: errs, parsed } = validate(current)
     setErrors(errs)
     if (!parsed) return
     setSaving(true)
     try {
       const res = await apiPut<SettingsResponse>('/api/v1/settings', parsed)
       onSaved(res)
-      setDraft(draftFrom(res.thresholds))
+      // Clear the draft so the form resumes following server state: the
+      // Settings page polls, and a lingering draft would hide another
+      // admin's later change and let a stray Save overwrite it.
+      setDraft(null)
       setSavedFlash(true)
     } catch (err) {
       onAuthError(err)
@@ -111,11 +116,11 @@ export default function ThresholdSettingsPanel({
         <input
           type="text"
           inputMode="decimal"
-          value={draft ? draft[key] : ''}
+          value={(draft ?? draftFrom(settings.thresholds))[key]}
           disabled={!isAdmin || saving}
           onChange={(e) => {
             setSavedFlash(false)
-            setDraft((d) => (d ? { ...d, [key]: e.target.value } : d))
+            setDraft((d) => ({ ...(d ?? draftFrom(settings.thresholds)), [key]: e.target.value }))
           }}
         />
         <span className="hint">{unit}</span>
@@ -123,17 +128,25 @@ export default function ThresholdSettingsPanel({
     </label>
   )
 
+  const currentDraft = draft ?? draftFrom(settings.thresholds)
+  const savedDraft = draftFrom(settings.thresholds)
+  const dirty = (Object.keys(currentDraft) as (keyof Draft)[]).some(
+    (key) => currentDraft[key] !== savedDraft[key],
+  )
+
   return (
-    <div className="threshold-settings">
-      <button className="linklike" aria-expanded={open} onClick={toggle}>
-        {open ? 'Close thresholds' : 'Thresholds'}
-      </button>
-      {open && (
+    <div className={'threshold-settings threshold-settings-' + variant}>
+      {variant === 'popover' && (
+        <button className="linklike" aria-expanded={open} onClick={toggle}>
+          {open ? 'Close thresholds' : 'Thresholds'}
+        </button>
+      )}
+      {(open || variant === 'page') && (
         <div className="threshold-panel">
           <div className="threshold-grid">
-            {field('Latency warning', 'ms', 'latencyWarnMs')}
+            {field('Latency degraded', 'ms', 'latencyWarnMs')}
             {field('Latency critical', 'ms', 'latencyCritMs')}
-            {field('Loss warning', '%', 'lossWarnPct')}
+            {field('Loss degraded', '%', 'lossWarnPct')}
             {field('Loss critical', '%', 'lossCritPct')}
           </div>
           {errors.length > 0 && (
@@ -153,7 +166,7 @@ export default function ThresholdSettingsPanel({
             {isAdmin ? (
               <span className="threshold-actions">
                 {savedFlash && <span className="hint">saved</span>}
-                <button className="primary" onClick={save} disabled={saving}>
+                <button className="primary" onClick={save} disabled={saving || !dirty}>
                   {saving ? 'Saving…' : 'Save'}
                 </button>
               </span>
