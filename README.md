@@ -34,14 +34,14 @@ directions for every site pair** — over 7/30/90/365-day windows.
 ## Architecture
 
 ```
-site A                          control plane (containers)             site B
-┌────────────────┐          ┌──────────────────────────────┐   ┌────────────────┐
-│ lighthouse-    │ mTLS/gRPC│ nginx        lighthouse-serv │   │ lighthouse-    │
-│ agent ─────────┼──:443───▶│ (SNI      ──▶ gRPC :8443     │◀──┼─ agent         │
-│  probes ───────┼──────────┼─passthrough)  dashboard :8080│   │   probes       │
-│  spool         │          │           ──▶ TimescaleDB    │   │   spool        │
-└────────────────┘          └──────────────────────────────┘   └────────────────┘
-        └───────────── ICMP/TCP/TLS/HTTP/DNS/traceroute ─────────────┘
+      site A                    control plane (containers)             site B
+┌────────────────┐           ┌───────────────────────────────┐   ┌────────────────┐
+│ lighthouse-    │ mTLS/gRPC │ nginx         lighthouse-serv │   │ lighthouse-    │
+│ agent ─────────┼──:443───> │ (SNI      ──> gRPC :8443      │<──┼─ agent         │
+│  probes ───────┼────────── ┼─passthrough)  dashboard :8080 │   │   probes       │
+│  spool         │           │           ──> TimescaleDB     │   │   spool        │
+└────────────────┘           └───────────────────────────────┘   └────────────────┘
+        └─────────────── ICMP/TCP/TLS/HTTP/DNS/traceroute ───────────────┘
 ```
 
 - **`lighthouse-server`** — control plane: gRPC API for agents (enrollment,
