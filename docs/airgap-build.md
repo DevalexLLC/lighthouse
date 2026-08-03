@@ -28,6 +28,11 @@ warm-cache environment. Locally the same check is:
 GOFLAGS=-mod=vendor GOPROXY=off GOTOOLCHAIN=local make build test
 ```
 
+The sibling `web-lint` job does install from the npm registry. That is not a
+hole in the guarantee: it lints and format-checks SPA *sources*, which are
+dev-time inputs. What ships is `web/dist/`, built by hand with `make web` and
+committed — no release path ever runs npm.
+
 Container image builds compile from vendor the same way, but are NOT
 zero-network: besides pulling the golang/alpine/nginx base images, the
 agent image's release stage installs one Alpine package (`libcap`, for

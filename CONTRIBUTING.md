@@ -28,8 +28,16 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 make build test lint    # offline
 make up                 # dev stack (compose base + dev overlay together)
+make web                # rebuild the SPA: lints, format-checks, then builds
+make web-fix            # apply oxlint autofixes and reformat
 ```
 
 `make up` always composes the base stack *and* the dev overlay. Do not
 `docker compose up` the base file alone in a dev environment — it silently
 removes the overlay services (fake agents, their tokens, monitoring).
+
+SPA style is enforced, not conventional: `make web` fails on any oxlint
+finding or unformatted file before it rebuilds `web/dist/`, and CI's
+`web-lint` job repeats both checks. That job installs from the npm registry
+— it gates dev tooling, so it sits outside the offline guarantee that
+`offline-build` enforces for everything shipped.

@@ -46,6 +46,10 @@ Full design + milestone plan: `docs/architecture.md`.
   services).
 - Regenerate protos: `make proto` (buf + protoc-gen-go{,-grpc} in ~/go/bin),
   commit the diff under `internal/pb/`.
+- SPA style: `make web` now runs `npm run lint && npm run fmt:check` BEFORE
+  building, so a finding or an unformatted file blocks the dist rebuild;
+  `make web-fix` = `oxlint --fix` + `oxfmt`. `make lint` is untouched
+  (Go-only, offline — CONTRIBUTING.md promises that).
 - Dev host ports: proxy publishes on **9443** (443 is usually taken on dev
   boxes); inside the network agents use `proxy:443` as in production.
 - Migrations: `internal/server/migrate/sql/NNNN_*.sql`, applied in filename
@@ -379,8 +383,32 @@ Full design + milestone plan: `docs/architecture.md`.
   percentiles present); 24h raw with percentile keys absent;
   matrix/outages regression-clean (tcp `conn_refused` cells + 6 open
   `probe_failing` are the dev mesh's intentional port-9 TCP probe).
+- SPA linting/formatting (2026-08-03): oxlint 1.77.0 + oxfmt 0.62.0, both
+  exact-pinned; their platform binaries are os/cpu-guarded optional deps, so
+  `package-lock.json` carries all 19+19 bindings exactly like TypeScript 7's.
+  `web/.oxfmtrc.json` = printWidth 120, 2-space, single quotes, no
+  semicolons, trailing commas — and `sortPackageJson: false`, which defaults
+  ON and would otherwise reorder package.json keys npm owns. Formatting
+  covers TS/TSX/CSS/HTML/loose JS; `src/assets/mapGeo.ts` is excluded from
+  BOTH tools because regenerating it via `tools/build-map-geo.mjs` would
+  immediately drift from formatted output. `web/.nvmrc` (24) is the single
+  node pin, read by CI's `web-lint` job — that job runs `npm ci` and is the
+  one CI check deliberately outside the offline guarantee (it gates sources,
+  never release artifacts; still NO dist-drift gate). Rule names differ from
+  ESLint's: hooks rules live under the `react` plugin (`react/rules-of-hooks`,
+  `react/exhaustive-deps`), and `plugins` REPLACES the default set (core
+  eslint rules stay on regardless). Four waivers, each with its reason in the
+  config or inline: `react/react-in-jsx-scope` (automatic JSX runtime),
+  `import/no-unassigned-import` (side-effect CSS imports),
+  `jsx-a11y/prefer-tag-over-role` (the dashboard's role="status"/"group"/"img"
+  are correct ARIA; output/fieldset/img carry different semantics and UA
+  styling), and per-site disables for Login's autofocus, WorldMap's hover-card
+  handlers, WorldMap's intentional memo-name shadowing, and one sort of a
+  freshly-spread array.
 - Next: post-M6 follow-ups worth tracking: revocation CLI, vendored+pinned
-  buf for a CI proto-drift gate, `:edge` image tags on main.
+  buf for a CI proto-drift gate, `:edge` image tags on main, type-aware
+  oxlint (`--type-aware`, needs tsgolint), and possibly oxfmt `sortImports`
+  (off for now — `main.tsx`'s side-effect CSS import order is load-bearing).
 
 ### M2 notes worth knowing
 

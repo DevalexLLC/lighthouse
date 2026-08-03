@@ -41,6 +41,28 @@ jobs:
       - name: Working tree must stay clean
         run: git diff --exit-code
 
+  # Style gate for the SPA sources. This job installs from the npm registry,
+  # which is fine: it checks dev tooling, not release artifacts. The air-gap
+  # guarantee lives entirely in offline-build above, and web/dist is built
+  # and committed by hand via `make web`.
+  web-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run fmt:check
+
   docker-build:
     runs-on: ubuntu-latest
     strategy:
