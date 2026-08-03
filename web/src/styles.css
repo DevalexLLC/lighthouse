@@ -7,17 +7,17 @@
 :root {
   color-scheme: light;
 
-  --bg: #f7f6f2;
-  --surface: #fcfcfb;
-  --surface-2: #f0efeb;
-  --border: #e0dfd9;
-  --border-strong: #c9c8c0;
-  --ink: #171713;
-  --ink-2: #55544d;
-  --ink-3: #6f6e66;
-  --accent: #1769b5;
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --ink: #18181b;
+  --ink-2: #52525b;
+  --ink-3: #71717a;
+  --accent: #4f46e5;
   --accent-ink: #ffffff;
-  --focus: #2a78d6;
+  --focus: #6366f1;
 
   /* Direction identity is categorical and must never borrow an alarm hue:
      slot 2's orange sits on the crit/down ramp, so the return beam uses
@@ -44,8 +44,15 @@
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
   --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --radius: 6px;
-  --radius-lg: 10px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  /* Cards get a whisper of elevation on light surfaces; dark relies on
+     borders alone (shadows read as mud on near-black). */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05);
+
+  /* Dot-matrix map (theme-aware, unlike the old forced-dark shell). */
+  --map-dot: #d4d4d8;
 }
 
 /* The resolved scheme is stamped on <html> by public/theme-init.js before
@@ -55,17 +62,17 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #131412;
-  --surface: #1b1c1a;
-  --surface-2: #232421;
-  --border: #30312d;
-  --border-strong: #45463f;
-  --ink: #f2f1ec;
-  --ink-2: #b9b8ae;
-  --ink-3: #aaa99f;
-  --accent: #62a8ff;
-  --accent-ink: #071019;
-  --focus: #62a8ff;
+  --bg: #0a0a0c;
+  --surface: #141417;
+  --surface-2: #1d1d21;
+  --border: #27272b;
+  --border-strong: #3b3b41;
+  --ink: #f4f4f5;
+  --ink-2: #b6b6bf;
+  --ink-3: #a1a1aa;
+  --accent: #818cf8;
+  --accent-ink: #101024;
+  --focus: #818cf8;
 
   --series-a: #3987e5;
 
@@ -77,6 +84,9 @@
   --status-degraded-bg: color-mix(in srgb, #fab219 14%, var(--surface));
   --status-down-bg: color-mix(in srgb, #d03b3b 17%, var(--surface));
   --status-stale-bg: var(--surface-2);
+
+  --shadow-card: none;
+  --map-dot: #33333a;
 }
 
 /* JetBrains Mono, vendored in web/public/fonts (OFL — license alongside).
@@ -415,6 +425,7 @@ button.linklike:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: var(--shadow-card);
   padding: 1.1rem 1.25rem 1.25rem;
   margin-bottom: 1.25rem;
 }
@@ -636,37 +647,38 @@ table.agents tr:last-child td {
   margin-bottom: 1.25rem;
 }
 
+/* Template-style segmented control: recessed track, raised active segment. */
 .control-group {
   display: inline-flex;
+  gap: 2px;
+  padding: 3px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--surface);
+  background: var(--surface-2);
 }
 
 .control-group button {
-  min-height: 40px;
-  padding: 0.5rem 0.9rem;
+  min-height: 32px;
+  padding: 0.3rem 0.85rem;
   font: inherit;
   font-size: 0.83rem;
-  border: none;
+  font-weight: 550;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 3px);
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
 }
 
-.control-group button + button {
-  border-left: 1px solid var(--border);
-}
-
 .control-group button.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
 }
 
 .control-group button:hover:not(.active) {
   color: var(--ink);
-  background: var(--surface-2);
 }
 
 .pair-cards {
@@ -875,7 +887,12 @@ table.events {
 table.events th {
   text-align: left;
   padding: 0.45rem 0.8rem;
-  border-bottom: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+  color: var(--ink-3);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -883,6 +900,10 @@ table.events td {
   padding: 0.5rem 0.8rem;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+}
+
+table.events tbody tr:hover td {
+  background: var(--surface-2);
 }
 
 table.events tr:last-child td {
@@ -1806,25 +1827,17 @@ ol.hops li {
 .topnav a {
   position: relative;
   display: grid;
-  min-height: 40px;
+  min-height: 36px;
   place-items: center;
   padding-inline: 0.75rem;
+  border-radius: var(--radius);
   font-weight: 550;
 }
 
 .topnav a.active {
   color: var(--ink);
-  background: transparent;
-}
-
-.topnav a.active::after {
-  position: absolute;
-  right: 0.75rem;
-  bottom: -0.65rem;
-  left: 0.75rem;
-  height: 2px;
-  content: '';
-  background: var(--accent);
+  background: var(--surface-2);
+  font-weight: 650;
 }
 
 .topbar-right {
@@ -2118,15 +2131,15 @@ ol.hops li {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 132px;
   flex-direction: column;
   justify-content: center;
-  padding: 1rem 1.1rem;
+  padding: 0.85rem 1.1rem;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   color: var(--ink);
   background: var(--surface);
+  box-shadow: var(--shadow-card);
   text-decoration: none;
 }
 
