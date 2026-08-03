@@ -52,7 +52,7 @@
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05);
 
   /* Dot-matrix map (theme-aware, unlike the old forced-dark shell). */
-  --map-dot: #d4d4d8;
+  --map-dot: #a1a1aa;
 }
 
 /* The resolved scheme is stamped on <html> by public/theme-init.js before
@@ -86,7 +86,7 @@
   --status-stale-bg: var(--surface-2);
 
   --shadow-card: none;
-  --map-dot: #33333a;
+  --map-dot: #3a3a42;
 }
 
 /* JetBrains Mono, vendored in web/public/fonts (OFL — license alongside).
@@ -1393,8 +1393,8 @@ ol.hops li {
 }
 
 .map-bubble {
-  fill: color-mix(in srgb, var(--map-bubble-color) 18%, transparent);
-  stroke: color-mix(in srgb, var(--map-bubble-color) 55%, transparent);
+  fill: color-mix(in srgb, var(--map-bubble-color) 24%, transparent);
+  stroke: color-mix(in srgb, var(--map-bubble-color) 70%, transparent);
   stroke-width: 1;
   transition: fill 140ms ease;
 }
@@ -1407,7 +1407,7 @@ ol.hops li {
 
 .map-site:hover .map-bubble,
 .map-site.pinned .map-bubble {
-  fill: color-mix(in srgb, var(--map-bubble-color) 30%, transparent);
+  fill: color-mix(in srgb, var(--map-bubble-color) 34%, transparent);
 }
 
 .map-bubble-core {
@@ -2234,82 +2234,6 @@ td.fleet-uptime {
   font-weight: 550;
 }
 
-.overview-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 1.25rem;
-  align-items: start;
-}
-
-.overview-grid > .card {
-  min-width: 0;
-  margin-bottom: 0;
-}
-
-.attention-card { grid-column: span 4; }
-.overview-list-card { grid-column: span 4; }
-
-.attention-list {
-  margin: 0 -0.5rem;
-}
-
-.attention-row,
-.overview-list-row {
-  display: grid;
-  align-items: center;
-  gap: 0.7rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.attention-row {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: 0.7rem 0.5rem;
-  color: var(--ink);
-  text-decoration: none;
-}
-
-.attention-row:hover { background: var(--surface-2); }
-
-.attention-row > span:nth-child(2),
-.overview-list-row > span:first-child {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.attention-row strong,
-.overview-list-row strong {
-  overflow: hidden;
-  font-size: 0.83rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.attention-row small,
-.overview-list-row small {
-  overflow: hidden;
-  color: var(--ink-3);
-  font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.attention-row time,
-.overview-list-row time {
-  color: var(--ink-3);
-  font-size: 0.72rem;
-  white-space: nowrap;
-}
-
-.overview-list-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 52px;
-  padding: 0.45rem 0;
-}
-
-.attention-row:last-child,
-.overview-list-row:last-child { border-bottom: 0; }
-
 .status-marker {
   display: block;
   width: 8px;
@@ -2528,8 +2452,6 @@ td.fleet-uptime {
   /* Stacked, nothing constrains the fleet card's height — cap the scroll
      region so a long fleet doesn't swallow the page. */
   .fleet-scroll { max-height: 420px; }
-  .attention-card,
-  .overview-list-card { grid-column: span 6; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -2547,7 +2469,6 @@ td.fleet-uptime {
   .view-toolbar > :last-child { margin-left: 0; }
   .search-field { max-width: none; flex-basis: 100%; order: -1; }
   .incident-toolbar .control-group:last-child { overflow-x: auto; }
-  .overview-list-card { grid-column: span 12; }
   .incident-summary { grid-template-columns: auto 1fr auto; gap: 0.7rem; }
   .incident-impact { grid-column: 2; }
   .incident-meta { grid-column: 2; }
@@ -2555,18 +2476,14 @@ td.fleet-uptime {
   .incident-details { padding-left: 1.25rem; overflow-x: auto; }
   .incident-detail-head,
   .incident-instance { min-width: 46rem; }
-  .attention-card,
-  .overview-list-card { grid-column: span 12; }
   .threshold-settings-page .threshold-grid { grid-template-columns: 1fr; }
   .threshold-settings-page .threshold-input input { width: 100%; }
 }
 
 @media (max-width: 640px) {
   .stat-grid { grid-template-columns: 1fr; }
-  .overview-main-row,
-  .overview-grid { display: block; }
-  .overview-main-row > .card,
-  .overview-grid > .card { margin-bottom: 1rem; }
+  .overview-main-row { display: block; }
+  .overview-main-row > .card { margin-bottom: 1rem; }
   .progressive-footer { align-items: stretch; flex-direction: column; }
 }
 

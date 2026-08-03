@@ -38,8 +38,12 @@ Full design + milestone plan: `docs/architecture.md`.
 ## Workflows
 
 - Build/test (offline): `make build`, `make test`. Dev stack: `make up` /
-  `make down` — ALWAYS composes base + dev overlay together; never
-  `docker compose up` the base file alone (silently drops overlay services).
+  `make down`, and `make reset` for teardown INCLUDING volumes (fresh
+  DB/CA/tokens — what older notes call `down -v`; plain `make down -v`
+  does NOT work, make eats `-v`). All three default
+  `LIGHTHOUSE_DB_PASSWORD`. ALWAYS composes base + dev overlay together;
+  never `docker compose up` the base file alone (silently drops overlay
+  services).
 - Regenerate protos: `make proto` (buf + protoc-gen-go{,-grpc} in ~/go/bin),
   commit the diff under `internal/pb/`.
 - Dev host ports: proxy publishes on **9443** (443 is usually taken on dev
@@ -72,12 +76,25 @@ Full design + milestone plan: `docs/architecture.md`.
   directions" tile flips it to matrix). The matrix table extracted verbatim
   to `components/MatrixTable.tsx` (`#/pair` links intact). Overview's main
   row is `ConnectivityCard` (span 7) + `FleetAgentsCard` (span 5,
-  equal-height via stretch + `flex:1 1 0; min-height:0` scroll region) over
-  the three original list cards; tiles are compact with a semantic
+  equal-height via stretch + `flex:1 1 0; min-height:0` scroll region);
+  tiles are compact with a semantic
   `.stat-badge`. Fleet card: per-agent last update, 48×30-min hand-rolled
   SVG success strip, and 24 h uptime % from `GET /api/v1/agents/health`
   (additive endpoint; traceroute excluded from ratios, `status <> 1` =
-  failure, sparse buckets, absent agents render "—" never 100 %). The map
+  failure, sparse buckets, absent agents render "—" never 100 %; full
+  confidence requires every COMPLETED slot covered — partial coverage
+  renders muted with the measured span spelled out). The three original
+  lower list cards (Active incidents / Agent attention / Recent route
+  changes) were subsequently dropped — Overview is tiles + the main row
+  only, and no longer polls /path-events. CERT_WARN_DAYS is 7 in BOTH
+  Overview.tsx and Agents.tsx: agents renew at 2/3 of the 30-day cert
+  lifetime (10 days left), so a 30-day warn window flagged every healthy
+  agent from issuance; 7 days fires only when renewal has been failing
+  for 3+ days. The dev seed no longer includes the deliberate failing
+  port-9 TCP mesh probe (bootstrap removes it from pre-existing dev DBs
+  on rerun, matching its exact printed shape) — a fresh dev stack
+  converges to an all-healthy board; inject failures per the M4 gate
+  recipes when a broken board is wanted. The map
   is now a dot-matrix landmass (`MAP_DOTS` baked by
   `web/tools/build-map-geo.mjs` point-in-polygon sampling; projection
   constants + `geo.ts` lockstep unchanged) with severity-tinted translucent
@@ -123,7 +140,7 @@ Full design + milestone plan: `docs/architecture.md`.
   never the lifetime `dropped_results` total, which would flag forever.
   Exactly antipodal site pairs get a deterministic nudged geodesic instead
   of a degenerate slerp. Agents' Attention filter partitions the fleet on
-  needsAttention (not healthy OR cert inside the 30-day warning window OR
+  needsAttention (not healthy OR cert inside the warning window OR
   spool drops in the last 24 h — in lockstep with Overview's
   attentionReason) so All = Attention + Healthy, the two views always
   agree, and a row whose cert cell shows a degraded-styled warning can

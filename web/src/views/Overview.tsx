@@ -11,7 +11,6 @@ import type {
   MatrixResponse,
   OutageEvent,
   OutagesResponse,
-  PathEventsResponse,
   SettingsResponse,
 } from '../types'
 
@@ -23,7 +22,12 @@ const POLL_MS = 30_000
 // shown is the most severe one; must stay in lockstep with needsAttention
 // in Agents.tsx so the fleet card and the Attention filter agree.
 const DROP_ATTENTION_MS = 24 * 60 * 60 * 1000
-const CERT_WARN_DAYS = 30 // mirror of CERT_WARN_DAYS in Agents.tsx
+// Agents renew their cert at 2/3 lifetime (10 days left on the 30-day
+// cert), so a healthy fleet always sits inside a 30-day window — the warn
+// threshold must be BELOW the renewal point or it flags every agent from
+// issuance. 7 days = renewal has been failing for 3+ days. Mirror of
+// CERT_WARN_DAYS in Agents.tsx.
+const CERT_WARN_DAYS = 7
 
 function attentionReason(a: AgentInfo): string | null {
   if (a.cert_revoked_at) return 'Certificate revoked'
@@ -71,7 +75,6 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
   const [matrix, setMatrix] = useState<MatrixResponse | null>(null)
   const [agents, setAgents] = useState<AgentsResponse | null>(null)
   const [outages, setOutages] = useState<OutagesResponse | null>(null)
-  const [paths, setPaths] = useState<PathEventsResponse | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [health, setHealth] = useState<AgentHealthResponse | null>(null)
   const [connMode, setConnMode] = useState<ConnectivityMode>('map')
@@ -85,15 +88,13 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
       apiGet<MatrixResponse>('/api/v1/matrix'),
       apiGet<AgentsResponse>('/api/v1/agents'),
       apiGet<OutagesResponse>('/api/v1/outages?window=24h'),
-      apiGet<PathEventsResponse>('/api/v1/path-events?window=24h'),
       apiGet<SettingsResponse>('/api/v1/settings'),
       apiGet<AgentHealthResponse>('/api/v1/agents/health?window=24h'),
     ])
-      .then(([m, a, o, p, s, h]) => {
+      .then(([m, a, o, s, h]) => {
         setMatrix(m)
         setAgents(a)
         setOutages(o)
-        setPaths(p)
         setSettings(s)
         setHealth(h)
         setUpdatedAt(new Date())
@@ -155,7 +156,7 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
     : 0
 
   if (error && !matrix) return <div className="state-panel state-error"><h1>Overview unavailable</h1><p>{error}</p><button onClick={() => void load()}>Try again</button></div>
-  if (!matrix || !agents || !outages || !paths) return <div className="state-panel" role="status"><span className="state-spinner" />Loading network overview…</div>
+  if (!matrix || !agents || !outages) return <div className="state-panel" role="status"><span className="state-spinner" />Loading network overview…</div>
 
   return (
     <>
@@ -163,7 +164,7 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
         <div>
           <div className="eyebrow">Operations</div>
           <h1>Overview</h1>
-          <p>Current health across sites, monitored directions, incidents, and routes.</p>
+          <p>Current health across sites, monitored directions, and the agent fleet.</p>
         </div>
         <div className="page-actions">
           <span className="freshness">Updated {fmtAgo(updatedAt?.toISOString() ?? null)}</span>
@@ -239,63 +240,6 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
         <FleetAgentsCard agents={agents.agents} health={health} />
       </div>
 
-      <div className="overview-grid">
-        <section className="card attention-card">
-          <div className="card-head">
-            <div>
-              <span className="eyebrow">Attention queue</span>
-              <h2>Active incidents</h2>
-            </div>
-            <a className="text-link" href="#/incidents">View all</a>
-          </div>
-          {activeGroups.length === 0 ? (
-            <div className="empty-state"><strong>All clear</strong><span>No active incidents.</span></div>
-          ) : (
-            <div className="attention-list">
-              {activeGroups.slice(0, 6).map((group) => {
-                const affected = new Set(group.events.map(targetKey)).size
-                return (
-                  <a href="#/incidents" className="attention-row" key={group.key}>
-                    <span className="status-marker status-marker-down" />
-                    <span><strong>{group.cause}</strong><small>{group.probe} · {affected} affected {affected === 1 ? 'target' : 'targets'}</small></span>
-                    <time>{fmtAgo(group.events[0].opened_at)}</time>
-                  </a>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="card overview-list-card">
-          <div className="card-head">
-            <div><span className="eyebrow">Fleet</span><h2>Agent attention</h2></div>
-            <a className="text-link" href="#/agents">View agents</a>
-          </div>
-          {attention.length === 0 ? (
-            <div className="empty-state"><strong>Fleet healthy</strong><span>No agents need attention.</span></div>
-          ) : attention.slice(0, 5).map((a) => (
-            <div className="overview-list-row" key={a.id}>
-              <span><strong>{a.site} · {a.hostname}</strong><small>{attentionReason(a)}</small></span>
-              <span className="status-pill status-pill-degraded">Attention</span>
-            </div>
-          ))}
-        </section>
-
-        <section className="card overview-list-card">
-          <div className="card-head">
-            <div><span className="eyebrow">Routing</span><h2>Recent changes</h2></div>
-            <a className="text-link" href="#/routes">View routes</a>
-          </div>
-          {paths.events.length === 0 ? (
-            <div className="empty-state"><strong>Routes stable</strong><span>No changes in the last 24 hours.</span></div>
-          ) : paths.events.slice(0, 5).map((event) => (
-            <div className="overview-list-row" key={event.id}>
-              <span><strong>{event.src_site} → {event.dst_site ?? event.target ?? '?'}</strong><small>Path fingerprint changed</small></span>
-              <time>{fmtAgo(event.time)}</time>
-            </div>
-          ))}
-        </section>
-      </div>
     </>
   )
 }

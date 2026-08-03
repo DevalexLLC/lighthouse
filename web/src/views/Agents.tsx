@@ -4,7 +4,11 @@ import { fmtAgo, fmtTime } from '../format'
 import type { AgentInfo, AgentsResponse } from '../types'
 
 const POLL_MS = 30_000
-const CERT_WARN_DAYS = 30
+// Agents renew their cert at 2/3 lifetime (10 days left on the 30-day
+// cert), so the warn threshold must be BELOW the renewal point or every
+// healthy agent is flagged from issuance. 7 days = renewal has been
+// failing for 3+ days. Mirror of CERT_WARN_DAYS in Overview.tsx.
+const CERT_WARN_DAYS = 7
 
 type Health = 'ok' | 'degraded' | 'down' | 'stale'
 type FleetFilter = 'all' | 'attention' | 'healthy'
