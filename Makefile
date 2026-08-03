@@ -21,7 +21,10 @@ COMPOSE      = docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_DEV)
 RPM_VERSION = $(shell echo '$(VERSION)' | sed 's/^v//; s/-/./g')
 RPM_ARCHS  ?= x86_64 aarch64
 
-.PHONY: all build server agent test lint vet proto web vendor up down reset logs ps seed clean rpm
+# Published image registry/namespace (ghcr requires lowercase).
+REGISTRY ?= ghcr.io/devalexllc
+
+.PHONY: all build server agent test lint vet proto web vendor up down reset logs ps seed clean rpm images bundle
 
 all: build
 
@@ -74,6 +77,20 @@ vet:
 
 lint: vet
 	@command -v staticcheck >/dev/null 2>&1 && staticcheck ./... || echo "staticcheck not installed; ran go vet only"
+
+# Production images for the local architecture (CI does multi-arch via
+# buildx). The agent MUST name --target release: the Dockerfile's default
+# target is the dev image.
+images:
+	docker build -f deploy/docker/server.Dockerfile \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		-t $(REGISTRY)/lighthouse-server:$(VERSION) .
+	docker build -f deploy/docker/agent.Dockerfile --target release \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		-t $(REGISTRY)/lighthouse-agent:$(VERSION) .
+	docker build -f deploy/docker/proxy.Dockerfile \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		-t $(REGISTRY)/lighthouse-proxy:$(VERSION) .
 
 # ---- dev-time regeneration (network/tooling allowed; outputs are committed) ----
 

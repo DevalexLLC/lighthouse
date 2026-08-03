@@ -11,6 +11,10 @@ services:
   # Inside the compose network agents still reach proxy:443 — the production
   # path (SNI passthrough on 443) is exercised unchanged.
   proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/proxy.Dockerfile
+    image: lighthouse-proxy:dev
     ports: !override
       - "9443:443"
 
@@ -44,6 +48,9 @@ services:
 
   bootstrap:
     image: lighthouse-server:dev
+    # Dev-only: the image runs as uid 10001, but the tokens volume is
+    # created root-owned; root keeps the bootstrap writes simple.
+    user: "0"
     entrypoint: /bin/sh
     command: /bootstrap.sh
     restart: on-failure
@@ -60,6 +67,9 @@ services:
     build: &agent-build
       context: ../..
       dockerfile: deploy/docker/agent.Dockerfile
+      # The Dockerfile's default target is dev, but consumers must be
+      # explicit (production/CI build --target release).
+      target: dev
     image: lighthouse-agent:dev
     restart: unless-stopped
     cap_add: [NET_RAW, NET_ADMIN]  # NET_ADMIN dev-only: lets the gate run iptables in-container

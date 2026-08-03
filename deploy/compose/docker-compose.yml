@@ -5,9 +5,12 @@
 #
 # Production expects:
 #   - LIGHTHOUSE_DB_PASSWORD set in the environment or .env (required, no default)
+#   - LIGHTHOUSE_VERSION pinned in .env (see env.example)
 #   - ./server.yaml         (copy server.example.yaml and edit)
-#   - server TLS cert/key in the "tls" volume (or replace with a bind mount)
-#   - images loaded via `docker load` from the release bundle (air-gapped)
+#   - server TLS cert/key in the "tls" volume, readable by uid 10001 (the
+#     server runs non-root; or replace with a bind mount)
+#   - images loaded via `docker load` from the release bundle (air-gapped),
+#     or pulled from ghcr.io/devalexllc where online
 #
 # Dev environments must NEVER compose this file alone — always together with
 # ../compose-dev/docker-compose.dev.yml (make up does this). Composing the
@@ -17,17 +20,18 @@ name: lighthouse
 
 services:
   proxy:
-    image: nginx:1.29-alpine
+    image: ghcr.io/devalexllc/lighthouse-proxy:${LIGHTHOUSE_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "443:443"
-    volumes:
-      - ../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    environment:
+      # Must match the server's listen.grpc_hostname (the SNI agents dial).
+      LIGHTHOUSE_GRPC_SNI: ${LIGHTHOUSE_GRPC_SNI:-grpc.lighthouse.local}
     depends_on:
       - server
 
   server:
-    image: lighthouse-server:${LIGHTHOUSE_VERSION:-latest}
+    image: ghcr.io/devalexllc/lighthouse-server:${LIGHTHOUSE_VERSION:-latest}
     restart: unless-stopped
     volumes:
       - ./server.yaml:/etc/lighthouse/server.yaml:ro

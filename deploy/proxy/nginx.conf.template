@@ -4,11 +4,14 @@
 # happens end-to-end in lighthouse-server; the proxy only inspects the
 # cleartext SNI in the ClientHello and routes the TCP stream:
 #
-#   grpc.<your-domain>  -> server:8443  (agent gRPC, mTLS)
-#   anything else       -> server:8080  (dashboard HTTPS)
+#   ${LIGHTHOUSE_GRPC_SNI}  -> server:8443  (agent gRPC, mTLS)
+#   anything else           -> server:8080  (dashboard HTTPS)
 #
-# Adjust the map below to your hostnames. Any SNI-capable proxy (haproxy,
-# traefik) can replace this file — passthrough is generic.
+# This is a template: the official nginx entrypoint substitutes ONLY
+# defined environment variables (LIGHTHOUSE_GRPC_SNI, defaulted in the
+# proxy image), leaving nginx runtime $variables untouched, and renders
+# /etc/nginx/nginx.conf at start. Any SNI-capable proxy (haproxy,
+# traefik) can replace this image — passthrough is generic.
 
 user nginx;
 worker_processes auto;
@@ -25,7 +28,7 @@ stream {
     access_log /dev/stdout proxy;
 
     map $ssl_preread_server_name $backend {
-        grpc.lighthouse.local  server_grpc;
+        ${LIGHTHOUSE_GRPC_SNI}  server_grpc;
         default                server_dashboard;
     }
 
