@@ -53,16 +53,51 @@ Full design + milestone plan: `docs/architecture.md`.
   editing `0001_init.sql` is fine; recreate dev DBs with `down -v`.
 - Conventional Commits (`feat(scope): ...`); see CONTRIBUTING.md.
 
-## Status (as of 2026-08-01)
+## Status (as of 2026-08-03)
+
+- Template-theme refactor (2026-08-03): the whole dashboard was restyled to
+  a shadcn-flavored admin look (zinc neutrals, hairline borders, indigo
+  `--accent`, 8/12 px radii, `--shadow-card` on light only) via retokenized
+  `styles.css` — series/status colors untouched. Theme system: the resolved
+  scheme lives in `data-theme` on `<html>`, stamped pre-paint by
+  `web/public/theme-init.js` (an EXTERNAL classic script — the CSP has no
+  inline allowance) and owned afterwards by `web/src/theme.ts`
+  (localStorage `lighthouse-theme` stores only explicit light/dark; absence
+  = system, which tracks OS changes live). A topbar icon button cycles
+  light→dark→system; PairDetail rebuilds uPlot options on toggle. The
+  Connectivity page is retired: `#/connectivity` and `#/sightlines` alias
+  to `#/`, nav is Overview/Incidents/Routes/Agents (a `NAV` array in
+  App.tsx), and the map/matrix switch moved into the Overview's
+  `ConnectivityCard` (segmented control in the card header; the "Healthy
+  directions" tile flips it to matrix). The matrix table extracted verbatim
+  to `components/MatrixTable.tsx` (`#/pair` links intact). Overview's main
+  row is `ConnectivityCard` (span 7) + `FleetAgentsCard` (span 5,
+  equal-height via stretch + `flex:1 1 0; min-height:0` scroll region) over
+  the three original list cards; tiles are compact with a semantic
+  `.stat-badge`. Fleet card: per-agent last update, 48×30-min hand-rolled
+  SVG success strip, and 24 h uptime % from `GET /api/v1/agents/health`
+  (additive endpoint; traceroute excluded from ratios, `status <> 1` =
+  failure, sparse buckets, absent agents render "—" never 100 %). The map
+  is now a dot-matrix landmass (`MAP_DOTS` baked by
+  `web/tools/build-map-geo.mjs` point-in-polygon sampling; projection
+  constants + `geo.ts` lockstep unchanged) with severity-tinted translucent
+  bubbles sized by link count — healthy wears the accent (map operations
+  palette, as carrier cyan did before), degraded/down/stale take the status
+  ramp — and a template-style hover/pin info card (code, location, status
+  pill, best live latency, direction breakdown bar). Carriers, pulses, seam
+  markers, graticule, and map labels are deleted (with
+  `greatCircleGeometry` and the dead `worldPath.ts`); the unplaced-sites
+  chip strip and severity vocabulary are unchanged.
 
 - Dashboard information architecture and visual system were unified for
   public use. `#/` is now the operator Overview (availability, healthy
   directions, correlated active-incident count, fleet attention, topology,
-  and recent route changes); `#/connectivity` owns the map/matrix switch;
-  primary navigation is Overview, Connectivity, Incidents, Routes, and
+  and recent route changes); the map/matrix switch now lives in the
+  Overview's Connectivity card (see above);
+  primary navigation is Overview, Incidents, Routes, and
   Agents; the user menu holds identity, role, logout, and admin-only Settings.
-  The legacy `#/outages`, `#/paths`, and
-  `#/sightlines` hashes remain aliases so bookmarks keep working. The
+  The legacy `#/outages`, `#/paths`, `#/sightlines`, and now
+  `#/connectivity` hashes remain aliases so bookmarks keep working. The
   standard shell now has task-oriented labels, a keyboard skip control,
   consistent page/toolbar/loading/error/empty patterns,
   responsive layouts, and AA-safe semantic text colors. Incidents correlate
@@ -98,16 +133,17 @@ Full design + milestone plan: `docs/architecture.md`.
   long errors sharing a prefix never merge); the Settings page polls
   /settings every 30 s like other views and the threshold form clears its
   draft after a save, so transient failures retry and remote edits
-  converge instead of being shadowed by a stale draft; the map inspector's
-  link count/best latency cover monitored pairs with unplaced peers (only
-  carrier drawing needs both endpoints placed).
+  converge instead of being shadowed by a stale draft; the map info card's
+  link count/best latency cover monitored pairs with unplaced peers (a
+  bubble needs only its own site's coordinates).
 
-- Shared topology map: `#/connectivity` switches between the SVG map and
-  directional matrix; Overview renders the same map as a compact preview. Site
-  dots at `sites.latitude/longitude` (nullable, both-or-neither CHECK; set
+- Shared topology map (map/matrix switch now in the Overview's
+  Connectivity card; the map is the dot-matrix version described in the top
+  bullet). Site
+  bubbles at `sites.latitude/longitude` (nullable, both-or-neither CHECK; set
   via the new `lighthouse-server site list|set` CLI, never at enrollment;
-  unplaced sites render in a fail-loud chip strip, never vanish) and one
-  great-circle carrier per site pair, colored by a client-side severity fold
+  unplaced sites render in a fail-loud chip strip, never vanish), colored
+  by a client-side severity fold
   (`web/src/severity.ts`: status first — down/stale can't look healthy —
   then shared warn/crit thresholds on the cell's headline latency/loss;
   rank ok<warn<stale<crit<down). Thresholds live in the single-row
@@ -116,12 +152,10 @@ Full design + milestone plan: `docs/architecture.md`.
   endpoint (withSession outermost; CSRF applies) — and are edited from a
   form on the Settings page (ms/% form, mirrors server validation; server
   names every problem, `DisallowUnknownFields`). Settings ride the
-  existing 30 s matrix poll, so other browsers converge ≤30 s. The map now
-  uses vendored Natural Earth I geometry (`assets/mapGeo.ts`), projection
-  (`geo.ts`), country/graticule detail,
-  antimeridian-safe geodesics with paired seam markers, collision-aware site
-  labels, and a visible hover/focus inspector (code, location, health,
-  monitored-link count, and best live latency). The map remains inside the
+  existing 30 s matrix poll, so other browsers converge ≤30 s. The map uses
+  the baked dot grid in `assets/mapGeo.ts` plus the lockstep projection in
+  `geo.ts`, with a hover/pin info card (code, location, health, link count,
+  best live latency, direction breakdown). The map remains inside the
   standard responsive Lighthouse card. Schema landed by editing 0001/0003 in place (pre-release
   convention) — existing dev DBs need `down -v`. Verified on a fresh
   compose stack through the proxy: CLI set/list + typo/range errors,
@@ -132,12 +166,10 @@ Full design + milestone plan: `docs/architecture.md`.
   are categorical blue + magenta (`--series-a`/`--series-b`, mirrored in
   `PairDetail.tsx` COLORS): never orange, which would read as the
   crit/down alarm ramp; the magenta passes CVD+contrast on both schemes.
-  Live feel: subdued cyan/amber/red/gray carriers use the operations palette, while
-  a sparse animated stroke pulse runs once per probed, flowing *direction*;
-  duration is scaled to chord length and staggered deterministically. An
-  unconfigured, down, or stale direction gets no pulse — nothing is flowing,
-  don't pretend. Pulses and alarm halos are removed under
-  `prefers-reduced-motion`.
+  The map's healthy tint is the accent indigo (its operations palette, as
+  the carrier cyan was before); degraded/down/stale bubbles take the
+  status ramp. Carriers and pulses are gone — per-direction detail lives
+  in matrix mode and the hover card's breakdown bar.
 - Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
   the header, login page, loading state, and favicon; it has no runtime
   network or font dependency. The README shows the same mark via

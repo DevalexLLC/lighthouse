@@ -392,7 +392,7 @@ export default function PairDetail({
     <>
       <div className="page-head page-head-primary">
         <div>
-          <div className="eyebrow"><a href="#/connectivity">Connectivity</a> / Pair detail</div>
+          <div className="eyebrow"><a href="#/">Overview</a> / Pair detail</div>
           <h1>{a} ⇄ {b}</h1>
           <p>Directional health, measurements, and current network paths.</p>
         </div>

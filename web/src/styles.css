@@ -2044,24 +2044,18 @@ ol.hops li {
   text-decoration: none;
 }
 
-.stat-card::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  content: '';
-  background: var(--border-strong);
+/* Tiles render as <a> or <button> (the directions tile flips the
+   connectivity card); both share one look. */
+button.stat-card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .stat-card:hover {
   border-color: var(--border-strong);
   transform: translateY(-1px);
 }
-
-.stat-card.stat-good::before { background: var(--status-ok); }
-.stat-card.stat-warning::before { background: var(--status-degraded); }
-.stat-card.stat-critical::before { background: var(--status-down); }
 
 .stat-label {
   color: var(--ink-3);
@@ -2073,8 +2067,9 @@ ol.hops li {
 
 .stat-card > strong {
   margin: 0.15rem 0;
-  font-family: var(--mono);
-  font-size: 1.9rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 
@@ -2084,12 +2079,152 @@ ol.hops li {
   font-weight: 500;
 }
 
-.stat-card > span:last-child {
+.stat-context {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   overflow: hidden;
   color: var(--ink-2);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The badge carries each tile's semantic accent (the value it grades, per
+   the accents-reflect-the-value rule), template comparison-pill style. */
+.stat-badge {
+  flex: none;
+  padding: 0.06rem 0.45rem;
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.stat-good .stat-badge { color: var(--status-ok); background: var(--status-ok-bg); }
+.stat-warning .stat-badge { color: var(--status-degraded); background: var(--status-degraded-bg); }
+.stat-critical .stat-badge { color: var(--status-down); background: var(--status-down-bg); }
+
+/* Overview's main row: connectivity card (map/matrix) left at ≥50% width,
+   fleet card right. align-items:stretch + the fleet scroll region's
+   flex:1/min-height:0 collapse make the connectivity card the height
+   driver — extra fleet rows scroll inside the card. */
+.overview-main-row {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: stretch;
+  margin-bottom: 1.25rem;
+}
+
+.overview-main-row > .card {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.overview-connectivity {
+  grid-column: span 7;
+}
+
+.overview-fleet {
+  display: flex;
+  flex-direction: column;
+  grid-column: span 5;
+  min-height: 0;
+}
+
+.card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.fleet-scroll {
+  flex: 1 1 0;
+  min-height: 12rem;
+  overflow-y: auto;
+}
+
+table.fleet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+table.fleet-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+table.fleet-table td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+table.fleet-table tr:last-child td {
+  border-bottom: none;
+}
+
+table.fleet-table td strong {
+  display: block;
+  font-size: 0.83rem;
+  font-weight: 650;
+}
+
+table.fleet-table td small {
+  display: block;
+  overflow: hidden;
+  max-width: 11rem;
+  color: var(--ink-3);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-seen {
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.fleet-health {
+  min-width: 7rem;
+}
+
+.fleet-strip {
+  display: block;
+  width: 100%;
+  height: 16px;
+}
+
+.fleet-strip-seg.strip-ok { fill: var(--accent); }
+.fleet-strip-seg.strip-degraded { fill: var(--status-degraded); }
+.fleet-strip-seg.strip-down { fill: var(--status-down); }
+.fleet-strip-seg.strip-nodata { fill: var(--border); }
+
+th.fleet-uptime,
+td.fleet-uptime {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+td.fleet-uptime {
+  font-weight: 650;
 }
 
 .overview-grid {
@@ -2104,9 +2239,8 @@ ol.hops li {
   margin-bottom: 0;
 }
 
-.overview-map { grid-column: span 8; }
 .attention-card { grid-column: span 4; }
-.overview-list-card { grid-column: span 6; }
+.overview-list-card { grid-column: span 4; }
 
 .attention-list {
   margin: 0 -0.5rem;
@@ -2334,9 +2468,6 @@ ol.hops li {
   border-top: 1px solid var(--border);
 }
 
-.connectivity-map-card,
-.connectivity-matrix-card { min-height: 36rem; }
-
 .settings-card { max-width: 52rem; }
 .section-intro { max-width: 45rem; margin: -0.25rem 0 1.25rem; color: var(--ink-2); }
 .threshold-settings-page .threshold-panel {
@@ -2385,8 +2516,13 @@ ol.hops li {
 .login-sub { margin: -0.35rem 0 0.5rem; color: var(--ink-2); font-size: 0.86rem; text-align: center; }
 
 @media (max-width: 1100px) {
-  .overview-map,
-  .attention-card { grid-column: span 12; }
+  .overview-connectivity,
+  .overview-fleet { grid-column: span 12; }
+  /* Stacked, nothing constrains the fleet card's height — cap the scroll
+     region so a long fleet doesn't swallow the page. */
+  .fleet-scroll { max-height: 420px; }
+  .attention-card,
+  .overview-list-card { grid-column: span 6; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -2398,7 +2534,6 @@ ol.hops li {
 
 @media (max-width: 760px) {
   .topbar { position: static; }
-  .topnav a.active::after { right: 0.4rem; bottom: 0; left: 0.4rem; }
   .page-head-primary { margin-bottom: 1rem; }
   .page-actions,
   .view-toolbar { align-items: stretch; flex-wrap: wrap; }
@@ -2413,15 +2548,17 @@ ol.hops li {
   .incident-details { padding-left: 1.25rem; overflow-x: auto; }
   .incident-detail-head,
   .incident-instance { min-width: 46rem; }
-  .connectivity-map-card,
-  .connectivity-matrix-card { min-height: 0; }
+  .attention-card,
+  .overview-list-card { grid-column: span 12; }
   .threshold-settings-page .threshold-grid { grid-template-columns: 1fr; }
   .threshold-settings-page .threshold-input input { width: 100%; }
 }
 
 @media (max-width: 640px) {
   .stat-grid { grid-template-columns: 1fr; }
+  .overview-main-row,
   .overview-grid { display: block; }
+  .overview-main-row > .card,
   .overview-grid > .card { margin-bottom: 1rem; }
   .progressive-footer { align-items: stretch; flex-direction: column; }
 }

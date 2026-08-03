@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
-import WorldMap from '../components/WorldMap'
+import ConnectivityCard, { type ConnectivityMode } from '../components/ConnectivityCard'
+import FleetAgentsCard from '../components/FleetAgentsCard'
 import { fmtAgo } from '../format'
 import { directionSeverity } from '../severity'
 import type {
+  AgentHealthResponse,
   AgentInfo,
   AgentsResponse,
   MatrixResponse,
@@ -71,6 +73,8 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
   const [outages, setOutages] = useState<OutagesResponse | null>(null)
   const [paths, setPaths] = useState<PathEventsResponse | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
+  const [health, setHealth] = useState<AgentHealthResponse | null>(null)
+  const [connMode, setConnMode] = useState<ConnectivityMode>('map')
   const [error, setError] = useState('')
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -83,13 +87,15 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
       apiGet<OutagesResponse>('/api/v1/outages?window=24h'),
       apiGet<PathEventsResponse>('/api/v1/path-events?window=24h'),
       apiGet<SettingsResponse>('/api/v1/settings'),
+      apiGet<AgentHealthResponse>('/api/v1/agents/health?window=24h'),
     ])
-      .then(([m, a, o, p, s]) => {
+      .then(([m, a, o, p, s, h]) => {
         setMatrix(m)
         setAgents(a)
         setOutages(o)
         setPaths(p)
         setSettings(s)
+        setHealth(h)
         setUpdatedAt(new Date())
         setError('')
       })
@@ -173,37 +179,67 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
         <a className={'stat-card' + ratioStatus(availableSites, matrix.sites.length)} href="#/agents">
           <span className="stat-label">Sites available</span>
           <strong>{availableSites}<small> / {matrix.sites.length}</small></strong>
-          <span>Sites with a live agent</span>
+          <span className="stat-context">
+            <span className="stat-badge">
+              {matrix.sites.length === 0
+                ? 'No sites'
+                : availableSites === matrix.sites.length
+                  ? 'All live'
+                  : `${matrix.sites.length - availableSites} unavailable`}
+            </span>
+            Sites with a live agent
+          </span>
         </a>
-        <a className={'stat-card' + ratioStatus(healthyDirections, totalDirections)} href="#/connectivity">
+        <button
+          type="button"
+          className={'stat-card' + ratioStatus(healthyDirections, totalDirections)}
+          onClick={() => {
+            setConnMode('matrix')
+            document.getElementById('connectivity')?.scrollIntoView({ block: 'nearest' })
+          }}
+        >
           <span className="stat-label">Healthy directions</span>
           <strong>{healthyDirections}<small> / {totalDirections}</small></strong>
-          <span>Latest probe horizon</span>
-        </a>
+          <span className="stat-context">
+            <span className="stat-badge">
+              {totalDirections === 0
+                ? 'No probes'
+                : healthyDirections === totalDirections
+                  ? 'All healthy'
+                  : `${totalDirections - healthyDirections} not healthy`}
+            </span>
+            Latest probe horizon
+          </span>
+        </button>
         <a className={'stat-card ' + (activeGroups.length > 0 ? 'stat-critical' : 'stat-good')} href="#/incidents">
           <span className="stat-label">Active incident groups</span>
           <strong>{activeGroups.length}</strong>
-          <span>{active.length === 0 ? 'No active incidents' : `${activeTargetCount} affected ${activeTargetCount === 1 ? 'target' : 'targets'}`}</span>
+          <span className="stat-context">
+            <span className="stat-badge">{activeGroups.length > 0 ? 'Active' : 'Clear'}</span>
+            {active.length === 0 ? 'No active incidents' : `${activeTargetCount} affected ${activeTargetCount === 1 ? 'target' : 'targets'}`}
+          </span>
         </a>
         <a className={'stat-card ' + (attention.length > 0 ? 'stat-warning' : 'stat-good')} href="#/agents">
           <span className="stat-label">Agents needing attention</span>
           <strong>{attention.length}</strong>
-          <span>Probe, certificate, or spool health</span>
+          <span className="stat-context">
+            <span className="stat-badge">{attention.length > 0 ? 'Attention' : 'All healthy'}</span>
+            Probe, certificate, or spool health
+          </span>
         </a>
       </section>
 
-      <div className="overview-grid">
-        <section className="card overview-map">
-          <div className="card-head">
-            <div>
-              <span className="eyebrow">Topology</span>
-              <h2>Network map</h2>
-            </div>
-            <a className="text-link" href="#/connectivity">Open connectivity</a>
-          </div>
-          <WorldMap sites={matrix.sites} cells={matrix.cells} thresholds={settings?.thresholds ?? null} />
-        </section>
+      <div className="overview-main-row">
+        <ConnectivityCard
+          matrix={matrix}
+          thresholds={settings?.thresholds ?? null}
+          mode={connMode}
+          onModeChange={setConnMode}
+        />
+        <FleetAgentsCard agents={agents.agents} health={health} />
+      </div>
 
+      <div className="overview-grid">
         <section className="card attention-card">
           <div className="card-head">
             <div>

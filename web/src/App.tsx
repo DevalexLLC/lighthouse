@@ -4,7 +4,6 @@ import type { LoginResponse, User } from './types'
 import ThemeToggle from './components/ThemeToggle'
 import Agents from './views/Agents'
 import Login from './views/Login'
-import Matrix from './views/Matrix'
 import Overview from './views/Overview'
 import Outages from './views/Outages'
 import PairDetail from './views/PairDetail'
@@ -15,7 +14,6 @@ import Settings from './views/Settings'
 // as aliases, so bookmarks survive the information-architecture cleanup.
 type Route =
   | { view: 'overview' }
-  | { view: 'connectivity' }
   | { view: 'pair'; a: string; b: string }
   | { view: 'incidents' }
   | { view: 'routes' }
@@ -27,13 +25,22 @@ function parseHash(hash: string): Route {
   if (parts[0] === 'pair' && parts[1] && parts[2]) {
     return { view: 'pair', a: decodeURIComponent(parts[1]), b: decodeURIComponent(parts[2]) }
   }
-  if (parts[0] === 'connectivity' || parts[0] === 'sightlines') return { view: 'connectivity' }
   if (parts[0] === 'incidents' || parts[0] === 'outages') return { view: 'incidents' }
   if (parts[0] === 'routes' || parts[0] === 'paths') return { view: 'routes' }
   if (parts[0] === 'agents') return { view: 'agents' }
   if (parts[0] === 'settings') return { view: 'settings' }
+  // #/connectivity and #/sightlines land here too: the map/matrix switch
+  // lives on the Overview now, so those bookmarks alias to it.
   return { view: 'overview' }
 }
+
+const NAV: Array<{ href: string; label: string; isActive: (r: Route) => boolean }> = [
+  // Pair detail is reached from the Overview matrix, so it keeps Overview lit.
+  { href: '#/', label: 'Overview', isActive: (r) => r.view === 'overview' || r.view === 'pair' },
+  { href: '#/incidents', label: 'Incidents', isActive: (r) => r.view === 'incidents' },
+  { href: '#/routes', label: 'Routes', isActive: (r) => r.view === 'routes' },
+  { href: '#/agents', label: 'Agents', isActive: (r) => r.view === 'agents' },
+]
 
 export default function App() {
   const [booted, setBooted] = useState(false)
@@ -105,41 +112,16 @@ export default function App() {
           Lighthouse
         </a>
         <nav className="topnav" aria-label="Primary navigation">
-          <a
-            href="#/"
-            className={route.view === 'overview' ? 'active' : ''}
-            aria-current={route.view === 'overview' ? 'page' : undefined}
-          >
-            Overview
-          </a>
-          <a
-            href="#/connectivity"
-            className={route.view === 'connectivity' || route.view === 'pair' ? 'active' : ''}
-            aria-current={route.view === 'connectivity' || route.view === 'pair' ? 'page' : undefined}
-          >
-            Connectivity
-          </a>
-          <a
-            href="#/incidents"
-            className={route.view === 'incidents' ? 'active' : ''}
-            aria-current={route.view === 'incidents' ? 'page' : undefined}
-          >
-            Incidents
-          </a>
-          <a
-            href="#/routes"
-            className={route.view === 'routes' ? 'active' : ''}
-            aria-current={route.view === 'routes' ? 'page' : undefined}
-          >
-            Routes
-          </a>
-          <a
-            href="#/agents"
-            className={route.view === 'agents' ? 'active' : ''}
-            aria-current={route.view === 'agents' ? 'page' : undefined}
-          >
-            Agents
-          </a>
+          {NAV.map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              className={item.isActive(route) ? 'active' : ''}
+              aria-current={item.isActive(route) ? 'page' : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
         </nav>
         <div className="topbar-right">
           <ThemeToggle />
@@ -172,8 +154,6 @@ export default function App() {
       <main id="main-content" tabIndex={-1}>
         {route.view === 'overview' ? (
           <Overview onAuthError={onAuthError} />
-        ) : route.view === 'connectivity' ? (
-          <Matrix onAuthError={onAuthError} />
         ) : route.view === 'pair' ? (
           <PairDetail a={route.a} b={route.b} onAuthError={onAuthError} />
         ) : route.view === 'incidents' ? (
