@@ -20,7 +20,7 @@ const (
 func (u *Uplink) PushResults(ctx context.Context, results []*pb.ProbeResult, dropped uint64) (uint32, error) {
 	ctx, cancel := context.WithTimeout(ctx, pushTimeout)
 	defer cancel()
-	resp, err := pb.NewAgentServiceClient(u.conn).PushResults(ctx, &pb.PushResultsRequest{
+	resp, err := pb.NewAgentServiceClient(u.getConn()).PushResults(ctx, &pb.PushResultsRequest{
 		Results:              results,
 		DroppedSinceLastPush: dropped,
 	})

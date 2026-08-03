@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -28,7 +29,10 @@ const (
 
 // Uplink owns the gRPC connection and the config stream.
 type Uplink struct {
-	cfg  config.Config
+	cfg config.Config
+	pki enroll.PKI
+
+	mu   sync.RWMutex
 	conn *grpc.ClientConn
 
 	// OnSnapshot is invoked for every received config snapshot (the
@@ -43,6 +47,14 @@ func New(cfg config.Config) (*Uplink, error) {
 	if !pki.Enrolled() {
 		return nil, fmt.Errorf("not enrolled: run `lighthouse-agent enroll` first (state dir %s)", cfg.StateDir)
 	}
+	conn, err := dial(cfg, pki)
+	if err != nil {
+		return nil, err
+	}
+	return &Uplink{cfg: cfg, pki: pki, conn: conn}, nil
+}
+
+func dial(cfg config.Config, pki enroll.PKI) (*grpc.ClientConn, error) {
 	tlsCfg, err := pki.ClientTLS(cfg)
 	if err != nil {
 		return nil, err
@@ -60,10 +72,34 @@ func New(cfg config.Config) (*Uplink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect %s: %w", cfg.Server.Address, err)
 	}
-	return &Uplink{cfg: cfg, conn: conn}, nil
+	return conn, nil
 }
 
-func (u *Uplink) Close() error { return u.conn.Close() }
+func (u *Uplink) getConn() *grpc.ClientConn {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	return u.conn
+}
+
+// Recycle replaces the gRPC connection so the next handshake presents the
+// renewed certificate. Without it the old connection would live until its
+// cert expires and then be dropped by the server's 30s revocation sweep — a
+// visible outage instead of a seamless renewal. Closing the old connection
+// errors the config stream and any in-flight push; both retry on the new
+// connection via their existing backoff paths.
+func (u *Uplink) Recycle() error {
+	conn, err := dial(u.cfg, u.pki)
+	if err != nil {
+		return err
+	}
+	u.mu.Lock()
+	old := u.conn
+	u.conn = conn
+	u.mu.Unlock()
+	return old.Close()
+}
+
+func (u *Uplink) Close() error { return u.getConn().Close() }
 
 // Run consumes the config stream until ctx is cancelled, reconnecting with
 // jittered exponential backoff. A stream that stayed up for a while resets
@@ -95,7 +131,7 @@ func (u *Uplink) Run(ctx context.Context) error {
 }
 
 func (u *Uplink) streamOnce(ctx context.Context) error {
-	client := pb.NewAgentServiceClient(u.conn)
+	client := pb.NewAgentServiceClient(u.getConn())
 	stream, err := client.StreamConfig(ctx, &pb.AgentHello{
 		AgentVersion: version.Version,
 		ConfigHash:   u.configHash,

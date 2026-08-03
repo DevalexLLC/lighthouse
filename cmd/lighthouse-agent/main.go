@@ -157,6 +157,7 @@ func cmdRun(args []string) error {
 	up.OnSnapshot = sched.Apply
 
 	go uplink.NewPusher(up, sp).Run(ctx)
+	go up.NewRenewer().Run(ctx)
 	return up.Run(ctx)
 }
 

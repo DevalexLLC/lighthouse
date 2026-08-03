@@ -218,11 +218,80 @@ func (p PKI) write(key *ecdsa.PrivateKey, resp *pb.EnrollResponse) error {
 	return nil
 }
 
-// ClientTLS builds the mTLS config for the agent uplink from enrolled state.
-func (p PKI) ClientTLS(cfg config.Config) (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(
-		filepath.Join(p.Dir, certFile), filepath.Join(p.Dir, keyFile))
+// Leaf returns the current agent certificate.
+func (p PKI) Leaf() (*x509.Certificate, error) {
+	pemBytes, err := os.ReadFile(filepath.Join(p.Dir, certFile))
 	if err != nil {
+		return nil, fmt.Errorf("agent certificate unusable (re-enroll?): %w", err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("%s: expected a CERTIFICATE PEM block", filepath.Join(p.Dir, certFile))
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse agent certificate: %w", err)
+	}
+	return leaf, nil
+}
+
+// RenewalCSR builds a CSR from the EXISTING private key, in memory. Renewal
+// deliberately does not rekey: the commit is then a single atomic swap of
+// agent.crt with no key/cert-mismatch window (rekey-on-renew would need a
+// two-file commit with crash recovery; revisit if key compromise rotation
+// is ever needed — that path is re-enrollment today).
+func (p PKI) RenewalCSR() ([]byte, error) {
+	keyPEM, err := os.ReadFile(filepath.Join(p.Dir, keyFile))
+	if err != nil {
+		return nil, fmt.Errorf("agent key unusable (re-enroll?): %w", err)
+	}
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return nil, fmt.Errorf("%s: expected an EC PRIVATE KEY PEM block", filepath.Join(p.Dir, keyFile))
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse agent key: %w", err)
+	}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	if err != nil {
+		return nil, fmt.Errorf("create renewal CSR: %w", err)
+	}
+	return csrDER, nil
+}
+
+// CommitRenewal persists a renewed certificate. Both files go through
+// tmp+rename; agent.crt is committed LAST (the same "cert last" invariant as
+// enrollment) so a crash at any point leaves a matching, usable key/cert pair.
+func (p PKI) CommitRenewal(certDER, caBundleDER []byte) error {
+	writeAtomic := func(name string, data []byte, mode os.FileMode) error {
+		tmp := filepath.Join(p.Dir, name+".tmp")
+		if err := os.WriteFile(tmp, data, mode); err != nil {
+			return fmt.Errorf("write %s: %w", tmp, err)
+		}
+		if err := os.Rename(tmp, filepath.Join(p.Dir, name)); err != nil {
+			return fmt.Errorf("commit %s: %w", name, err)
+		}
+		return nil
+	}
+	if len(caBundleDER) > 0 {
+		caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caBundleDER})
+		if err := writeAtomic(caFile, caPEM, 0o644); err != nil {
+			return err
+		}
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	return writeAtomic(certFile, certPEM, 0o644)
+}
+
+// ClientTLS builds the mTLS config for the agent uplink from enrolled state.
+// The eager load is a fail-fast check only; handshakes load the certificate
+// from disk via GetClientCertificate so a renewal committed while the agent
+// runs takes effect on the next handshake without a restart.
+func (p PKI) ClientTLS(cfg config.Config) (*tls.Config, error) {
+	certPath := filepath.Join(p.Dir, certFile)
+	keyPath := filepath.Join(p.Dir, keyFile)
+	if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
 		return nil, fmt.Errorf("agent certificate unusable (re-enroll?): %w", err)
 	}
 	caPEM, err := os.ReadFile(filepath.Join(p.Dir, caFile))
@@ -234,10 +303,16 @@ func (p PKI) ClientTLS(cfg config.Config) (*tls.Config, error) {
 		return nil, errors.New("CA bundle contains no certificates")
 	}
 	return &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      pool,
-		ServerName:   serverName(cfg),
+		MinVersion: tls.VersionTLS12,
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+			if err != nil {
+				return nil, fmt.Errorf("agent certificate unusable (re-enroll?): %w", err)
+			}
+			return &cert, nil
+		},
+		RootCAs:    pool,
+		ServerName: serverName(cfg),
 	}, nil
 }
 
