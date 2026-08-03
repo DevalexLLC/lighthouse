@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"strings"
@@ -13,66 +14,19 @@ import (
 
 	"github.com/google/uuid"
 
-	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/config"
+	"github.com/devalexllc/lighthouse/internal/server/probeadmin"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
-// probeTypeNames maps CLI names to wire enum values.
-var probeTypeNames = map[string]pb.ProbeType{
-	"icmp":       pb.ProbeType_PROBE_TYPE_ICMP,
-	"tcp":        pb.ProbeType_PROBE_TYPE_TCP,
-	"tls":        pb.ProbeType_PROBE_TYPE_TLS,
-	"http":       pb.ProbeType_PROBE_TYPE_HTTP,
-	"dns":        pb.ProbeType_PROBE_TYPE_DNS,
-	"traceroute": pb.ProbeType_PROBE_TYPE_TRACEROUTE,
-}
+// cliUpdatedBy is the audit identity recorded for CLI edits (the web UI
+// records the session username instead).
+const cliUpdatedBy = "cli"
 
-func parseProbeType(name string) (pb.ProbeType, error) {
-	t, ok := probeTypeNames[name]
-	if !ok {
-		accepted := make([]string, 0, len(probeTypeNames))
-		for k := range probeTypeNames {
-			accepted = append(accepted, k)
-		}
-		return 0, fmt.Errorf("unknown probe type %q (accepted: %s)", name, strings.Join(accepted, ", "))
-	}
-	return t, nil
-}
-
-// validateTrain rejects train settings that cannot fit inside the per-run
-// timeout: the agent budgets the whole train within spec.timeout, so a
-// train longer than the timeout would silently lose its tail.
-func validateTrain(count int, spacing, timeout time.Duration) error {
-	if count < 0 || spacing < 0 {
-		return fmt.Errorf("--train-count and --train-spacing must not be negative")
-	}
-	if count == 0 {
-		// Snapshot building only forwards spacing alongside a positive
-		// count; accepting spacing alone would silently no-op on the agent.
-		if spacing > 0 {
-			return fmt.Errorf("--train-spacing requires --train-count")
-		}
-		return nil
-	}
-	effSpacing := spacing
-	if effSpacing == 0 {
-		effSpacing = 200 * time.Millisecond // prober default
-	}
-	if trainLen := time.Duration(count) * effSpacing; trainLen >= timeout {
-		return fmt.Errorf("train of %d × %s (%s) must fit inside --timeout (%s)",
-			count, effSpacing, trainLen, timeout)
-	}
-	return nil
-}
-
-func probeTypeName(t int16) string {
-	for name, v := range probeTypeNames {
-		if int16(v) == t {
-			return name
-		}
-	}
-	return fmt.Sprintf("type-%d", t)
+// cliProbeFields makes shared validation errors name the CLI flags.
+var cliProbeFields = probeadmin.FieldNames{
+	Interval: "--interval", Timeout: "--timeout",
+	TrainCount: "--train-count", TrainSpacing: "--train-spacing",
 }
 
 // paramsFlag collects repeated --param k=v flags.
@@ -310,13 +264,13 @@ func cmdProbe(args []string) error {
 		trainCount := fs.Int("train-count", 0, "packets per run for train probes (icmp); 0 = prober default (10)")
 		trainSpacing := fs.Duration("train-spacing", 0, "gap between train packets; 0 = prober default (200ms)")
 		params := paramsFlag{}
-		fs.Var(params, "param", "type-specific key=value (repeatable), e.g. http.expect_status=200, dns.qname=example.org, port=5432")
+		fs.Var(params, "param", "type-specific key=value (repeatable), validated against the probe type's accepted keys, e.g. http.expect_status=200, dns.qname=example.org, port=5432")
 		cfg, err := loadConfig(fs, args[1:])
 		if err != nil {
 			return err
 		}
 
-		probeType, err := parseProbeType(*typeName)
+		probeType, err := probeadmin.ParseType(*typeName)
 		if err != nil {
 			return err
 		}
@@ -328,14 +282,10 @@ func cmdProbe(args []string) error {
 		if directMode && (*site == "" || *target == "") {
 			return fmt.Errorf("--site and --target are both required for a direct probe")
 		}
-		if *interval <= 0 || *timeout <= 0 {
-			return fmt.Errorf("--interval and --timeout must be positive")
-		}
-		if *timeout >= *interval {
-			return fmt.Errorf("--timeout (%s) must be shorter than --interval (%s)", *timeout, *interval)
-		}
-		if err := validateTrain(*trainCount, *trainSpacing, *timeout); err != nil {
-			return err
+		problems := probeadmin.ValidateSettings(*interval, *timeout, *trainCount, *trainSpacing, cliProbeFields)
+		problems = append(problems, probeadmin.ValidateParams(probeType, meshMode, params)...)
+		if len(problems) > 0 {
+			return errors.New(strings.Join(problems, "; "))
 		}
 
 		st, ctx, cancel, err := adminStore(cfg)
@@ -354,9 +304,9 @@ func cmdProbe(args []string) error {
 		}
 		var id uuid.UUID
 		if meshMode {
-			id, err = st.AddMeshProbe(ctx, *mesh, ps)
+			id, err = st.AddMeshProbe(ctx, *mesh, ps, cliUpdatedBy)
 		} else {
-			id, err = st.AddDirectProbe(ctx, *site, *target, ps)
+			id, err = st.AddDirectProbe(ctx, *site, *target, ps, cliUpdatedBy)
 		}
 		if err != nil {
 			return err
@@ -391,7 +341,7 @@ func cmdProbe(args []string) error {
 				assignment = fmt.Sprintf("%s -> %s", p.Site, p.Target)
 			}
 			fmt.Printf("%-36s  %-5s  %-28s  %-9s  %-8s  %v\n",
-				p.ID, probeTypeName(p.ProbeType), assignment, p.Interval, p.Timeout, p.Enabled)
+				p.ID, probeadmin.TypeName(p.ProbeType), assignment, p.Interval, p.Timeout, p.Enabled)
 		}
 		return nil
 
@@ -422,11 +372,34 @@ func cmdProbe(args []string) error {
 }
 
 func cmdMesh(args []string) error {
-	const use = "usage: lighthouse-server mesh create|add|rm|list ..."
+	const use = "usage: lighthouse-server mesh create|add|rm|delete|list ..."
 	if len(args) < 1 {
 		return fmt.Errorf(use)
 	}
 	switch args[0] {
+	case "delete":
+		fs := flag.NewFlagSet("mesh delete", flag.ExitOnError)
+		name := fs.String("name", "", "mesh group name to delete (cascades its probe templates)")
+		cfg, err := loadConfig(fs, args[1:])
+		if err != nil {
+			return err
+		}
+		if *name == "" {
+			return fmt.Errorf("--name is required")
+		}
+		st, ctx, cancel, err := adminStore(cfg)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer st.Close()
+		deleted, err := st.DeleteMeshGroup(ctx, *name)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("mesh %q deleted (%d probe config(s) removed with it)\n", *name, deleted)
+		return nil
+
 	case "create":
 		fs := flag.NewFlagSet("mesh create", flag.ExitOnError)
 		name := fs.String("name", "", "mesh group name")

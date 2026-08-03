@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
+	"github.com/devalexllc/lighthouse/internal/server/probeid"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -48,7 +49,7 @@ func BuildSnapshot(in store.AgentConfigInputs) *pb.ConfigSnapshot {
 			if p.MeshID != m.MeshID || p.SiteID == in.SiteID {
 				continue
 			}
-			specs = append(specs, spec(meshProbeID(m.MeshID, in.SiteID, p.SiteID, m.Settings.ProbeType),
+			specs = append(specs, spec(probeid.MeshProbeID(m.MeshID, in.SiteID, p.SiteID, m.Settings.ProbeType),
 				m.Settings, &pb.Target{
 					Kind:     pb.TargetKind_TARGET_KIND_AGENT_PEER,
 					TargetId: p.TargetID.String(),
@@ -65,12 +66,9 @@ func BuildSnapshot(in store.AgentConfigInputs) *pb.ConfigSnapshot {
 	}
 }
 
-// meshProbeID is the architecture's UUIDv5(mesh, src, dst, type): stable
-// across rebuilds, distinct per direction (A→B ≠ B→A) and per probe type.
-func meshProbeID(meshID, srcSite, dstSite uuid.UUID, probeType int16) uuid.UUID {
-	name := fmt.Sprintf("%s|%s|%d", srcSite, dstSite, probeType)
-	return uuid.NewSHA1(meshID, []byte(name))
-}
+// meshProbeID delegates to the shared derivation; the alias keeps the
+// pinning tests in this package byte-for-byte unchanged.
+var meshProbeID = probeid.MeshProbeID
 
 // meshPort reads the target port for mesh probes from the template's params
 // ("port"). Mesh templates have no target row to carry one.

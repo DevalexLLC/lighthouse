@@ -33,6 +33,10 @@ type fakeDB struct {
 	endpoints         map[string]*store.SiteEndpoints
 	settings          *store.ThresholdSettings
 
+	targets     []store.TargetInfo
+	meshes      []store.MeshGroupInfo
+	probes      []store.ProbeConfigInfo
+
 	pairSummary          *store.PairSummaryRow
 	pairSeries           []store.SeriesBucket
 	latencySource        string

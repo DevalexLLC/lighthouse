@@ -230,3 +230,79 @@ export interface TracerouteResponse {
 
 export const WINDOWS = ['24h', '7d', '30d', '90d', '365d'] as const
 export type Window = (typeof WINDOWS)[number]
+
+// --- Probe-workload config (/api/v1/config/*). Reads any session; writes
+// admin-only. Cadence fields are wire integer milliseconds; the probes form
+// converts to seconds at the edge like the thresholds form does µs↔ms.
+
+export const PROBE_TYPES = ['icmp', 'tcp', 'tls', 'http', 'dns', 'traceroute'] as const
+export type ProbeTypeName = (typeof PROBE_TYPES)[number]
+
+export interface TargetConfig {
+  id: string
+  kind: 'agent' | 'external'
+  name: string
+  address?: string
+  port?: number
+  url?: string
+  probe_count: number
+  created_at: string
+}
+
+export interface TargetsConfigResponse {
+  targets: TargetConfig[]
+}
+
+export interface MeshConfig {
+  id: string
+  name: string
+  sites: string[]
+  probe_count: number
+}
+
+export interface MeshesConfigResponse {
+  meshes: MeshConfig[]
+}
+
+export interface ProbeConfig {
+  id: string
+  site?: string
+  target?: string
+  mesh?: string
+  type: string
+  interval_ms: number
+  timeout_ms: number
+  train_count: number
+  train_spacing_ms: number
+  params: Record<string, string>
+  enabled: boolean
+  created_at: string
+  updated_at: string
+  updated_by?: string
+}
+
+export interface ProbesConfigResponse {
+  probes: ProbeConfig[]
+}
+
+// GET /api/v1/config/probe-types — the server-side param registry. The
+// probe form renders its param fields from this, so the set of accepted
+// keys has exactly one source of truth (internal/server/probeadmin).
+export interface ParamSpec {
+  key: string
+  hint: string
+  kind: 'string' | 'port' | 'bool' | 'enum' | 'status'
+  enum?: string[]
+  required_mesh?: boolean
+  required_direct?: boolean
+  mesh_only?: boolean
+}
+
+export interface ProbeTypeInfo {
+  type: string
+  params: ParamSpec[]
+}
+
+export interface ProbeTypesResponse {
+  types: ProbeTypeInfo[]
+}

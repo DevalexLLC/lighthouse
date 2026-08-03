@@ -1,14 +1,34 @@
 import { useEffect, useState } from 'react'
 import { apiGet } from '../api'
+import type { SettingsTab } from '../App'
+import MeshesPanel from '../components/MeshesPanel'
+import ProbesPanel from '../components/ProbesPanel'
+import TargetsPanel from '../components/TargetsPanel'
 import ThresholdSettingsPanel from '../components/ThresholdSettings'
 import type { SettingsResponse } from '../types'
 
 const POLL_MS = 30_000
 
+const TABS: Array<{ tab: SettingsTab; href: string; label: string }> = [
+  { tab: 'thresholds', href: '#/settings', label: 'Thresholds' },
+  { tab: 'targets', href: '#/settings/targets', label: 'Targets' },
+  { tab: 'meshes', href: '#/settings/meshes', label: 'Meshes' },
+  { tab: 'probes', href: '#/settings/probes', label: 'Probes' },
+]
+
+const TAB_INTRO: Record<SettingsTab, string> = {
+  thresholds: 'Shared thresholds used to classify network health across the dashboard.',
+  targets: 'External hosts and URLs that site agents probe.',
+  meshes: 'Site groups whose members probe each other in both directions.',
+  probes: 'The measurement workload pushed to every affected agent within ~30 seconds.',
+}
+
 export default function Settings({
+  tab,
   isAdmin,
   onAuthError,
 }: {
+  tab: SettingsTab
   isAdmin: boolean
   onAuthError: (err: unknown) => void
 }) {
@@ -18,7 +38,10 @@ export default function Settings({
   // Poll like every other view: a transient failure retries on the next
   // tick, and another admin's change converges here ≤30 s. The panel keeps
   // its own draft once edited, so a poll never clobbers in-progress input.
+  // Only the thresholds tab needs /settings; the config tabs poll their own
+  // endpoints.
   useEffect(() => {
+    if (tab !== 'thresholds') return
     let cancelled = false
     const load = () => {
       apiGet<SettingsResponse>('/api/v1/settings')
@@ -40,7 +63,7 @@ export default function Settings({
       cancelled = true
       clearInterval(id)
     }
-  }, [onAuthError])
+  }, [tab, onAuthError])
 
   return (
     <>
@@ -48,10 +71,28 @@ export default function Settings({
         <div>
           <div className="eyebrow">Administration</div>
           <h1>Settings</h1>
-          <p>Shared thresholds used to classify network health across the dashboard.</p>
+          <p>{TAB_INTRO[tab]}</p>
         </div>
       </div>
-      {error && !settings ? (
+      <nav className="settings-tabs" aria-label="Settings sections">
+        {TABS.map((t) => (
+          <a
+            key={t.tab}
+            href={t.href}
+            className={t.tab === tab ? 'active' : ''}
+            aria-current={t.tab === tab ? 'page' : undefined}
+          >
+            {t.label}
+          </a>
+        ))}
+      </nav>
+      {tab === 'targets' ? (
+        <TargetsPanel isAdmin={isAdmin} onAuthError={onAuthError} />
+      ) : tab === 'meshes' ? (
+        <MeshesPanel isAdmin={isAdmin} onAuthError={onAuthError} />
+      ) : tab === 'probes' ? (
+        <ProbesPanel isAdmin={isAdmin} onAuthError={onAuthError} />
+      ) : error && !settings ? (
         <div className="state-panel state-error"><h2>Settings unavailable</h2><p>{error}</p></div>
       ) : !settings ? (
         <div className="state-panel" role="status"><span className="state-spinner" />Loading settings…</div>

@@ -51,6 +51,10 @@ CREATE TABLE probe_configs (
     params           jsonb NOT NULL DEFAULT '{}',
     enabled          boolean NOT NULL DEFAULT true,
     created_at       timestamptz NOT NULL DEFAULT now(),
+    -- Audit trail for admin edits (CLI writes 'cli', the web UI writes the
+    -- session username).
+    updated_at       timestamptz NOT NULL DEFAULT now(),
+    updated_by       text NOT NULL DEFAULT '',
     CHECK ((mesh_id IS NOT NULL AND site_id IS NULL AND target_id IS NULL)
         OR (mesh_id IS NULL AND site_id IS NOT NULL AND target_id IS NOT NULL))
 );

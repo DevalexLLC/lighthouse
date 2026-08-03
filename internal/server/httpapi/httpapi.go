@@ -39,6 +39,21 @@ type DB interface {
 	GetSettings(ctx context.Context) (*store.ThresholdSettings, error)
 	UpdateSettings(ctx context.Context, ts store.ThresholdSettings) (*store.ThresholdSettings, error)
 
+	ListTargets(ctx context.Context) ([]store.TargetInfo, error)
+	UpsertExternalTarget(ctx context.Context, name, address string, port int32, url string) (uuid.UUID, error)
+	DeleteTarget(ctx context.Context, name string) error
+	ListMeshGroups(ctx context.Context) ([]store.MeshGroupInfo, error)
+	UpsertMeshGroup(ctx context.Context, name string) (uuid.UUID, error)
+	DeleteMeshGroup(ctx context.Context, name string) (int64, error)
+	AddMeshMember(ctx context.Context, meshName, siteName string) error
+	RemoveMeshMember(ctx context.Context, meshName, siteName string) error
+	ListProbeConfigs(ctx context.Context) ([]store.ProbeConfigInfo, error)
+	GetProbeConfig(ctx context.Context, id uuid.UUID) (*store.ProbeConfigInfo, error)
+	AddDirectProbe(ctx context.Context, siteName, targetName string, ps store.ProbeSettings, updatedBy string) (uuid.UUID, error)
+	AddMeshProbe(ctx context.Context, meshName string, ps store.ProbeSettings, updatedBy string) (uuid.UUID, error)
+	UpdateProbeConfig(ctx context.Context, id uuid.UUID, ps store.ProbeSettings, enabled bool, updatedBy string) error
+	DeleteProbeConfig(ctx context.Context, id uuid.UUID) error
+
 	ListOutages(ctx context.Context, window time.Duration) ([]store.OutageInfo, error)
 	ListPathEvents(ctx context.Context, window time.Duration) ([]store.PathEventInfo, error)
 	CurrentPaths(ctx context.Context, srcAgents, dstTargets []uuid.UUID) ([]store.CurrentPath, error)
@@ -82,6 +97,24 @@ func New(sdb DB, static fs.FS) http.Handler {
 	// reads and enforces CSRF on the mutating method.
 	mux.Handle("PUT /api/v1/settings",
 		a.withSession(requireRole("admin", http.HandlerFunc(a.handleSettingsPut)).ServeHTTP))
+	// Probe-workload config: reads any-session, writes admin-only (the
+	// same withSession-outermost ordering as PUT /settings).
+	adminWrite := func(h http.HandlerFunc) http.Handler {
+		return a.withSession(requireRole("admin", h).ServeHTTP)
+	}
+	mux.Handle("GET /api/v1/config/probe-types", a.withSession(a.handleProbeTypes))
+	mux.Handle("GET /api/v1/config/targets", a.withSession(a.handleTargetsGet))
+	mux.Handle("POST /api/v1/config/targets", adminWrite(a.handleTargetPost))
+	mux.Handle("DELETE /api/v1/config/targets/{name}", adminWrite(a.handleTargetDelete))
+	mux.Handle("GET /api/v1/config/meshes", a.withSession(a.handleMeshesGet))
+	mux.Handle("POST /api/v1/config/meshes", adminWrite(a.handleMeshPost))
+	mux.Handle("DELETE /api/v1/config/meshes/{name}", adminWrite(a.handleMeshDelete))
+	mux.Handle("POST /api/v1/config/meshes/{name}/members/{site}", adminWrite(a.handleMeshMemberPost))
+	mux.Handle("DELETE /api/v1/config/meshes/{name}/members/{site}", adminWrite(a.handleMeshMemberDelete))
+	mux.Handle("GET /api/v1/config/probes", a.withSession(a.handleProbesGet))
+	mux.Handle("POST /api/v1/config/probes", adminWrite(a.handleProbePost))
+	mux.Handle("PUT /api/v1/config/probes/{id}", adminWrite(a.handleProbePut))
+	mux.Handle("DELETE /api/v1/config/probes/{id}", adminWrite(a.handleProbeDelete))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}", a.withSession(a.handlePair))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}/series", a.withSession(a.handleSeries))
 	mux.Handle("GET /api/v1/outages", a.withSession(a.handleOutages))

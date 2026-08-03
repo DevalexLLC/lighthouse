@@ -13,13 +13,17 @@ import Settings from './views/Settings'
 
 // Hash routing stays dependency-free and preserves the original route names
 // as aliases, so bookmarks survive the information-architecture cleanup.
+export type SettingsTab = 'thresholds' | 'targets' | 'meshes' | 'probes'
+
+const SETTINGS_TABS: SettingsTab[] = ['thresholds', 'targets', 'meshes', 'probes']
+
 type Route =
   | { view: 'overview' }
   | { view: 'pair'; a: string; b: string }
   | { view: 'incidents' }
   | { view: 'routes' }
   | { view: 'agents' }
-  | { view: 'settings' }
+  | { view: 'settings'; tab: SettingsTab }
 
 function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/')
@@ -29,7 +33,12 @@ function parseHash(hash: string): Route {
   if (parts[0] === 'incidents' || parts[0] === 'outages') return { view: 'incidents' }
   if (parts[0] === 'routes' || parts[0] === 'paths') return { view: 'routes' }
   if (parts[0] === 'agents') return { view: 'agents' }
-  if (parts[0] === 'settings') return { view: 'settings' }
+  if (parts[0] === 'settings') {
+    // #/settings/<tab>; unknown or absent tabs land on thresholds so the
+    // plain #/settings bookmark (and the user-menu link) keep working.
+    const tab = SETTINGS_TABS.find((t) => t === parts[1]) ?? 'thresholds'
+    return { view: 'settings', tab }
+  }
   // #/connectivity and #/sightlines land here too: the map/matrix switch
   // lives on the Overview now, so those bookmarks alias to it.
   return { view: 'overview' }
@@ -163,6 +172,7 @@ export default function App() {
           <Agents onAuthError={onAuthError} />
         ) : route.view === 'settings' ? (
           <Settings
+            tab={route.tab}
             isAdmin={user.role === 'admin'}
             onAuthError={onAuthError}
           />

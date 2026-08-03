@@ -59,6 +59,43 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- Probe-workload management moved into the web UI (2026-08-03): Settings is
+  now a tabbed page (Thresholds / Targets / Meshes / Probes, hash
+  `#/settings/<tab>`, plain `#/settings` = thresholds; still reached only
+  via the admin-only user-menu entry, soft-gated — viewers see read-only).
+  New `/api/v1/config/*` surface: `probe-types` (the param registry),
+  `targets`, `meshes` (+`/members/{site}`), `probes` — reads any-session,
+  writes `requireRole("admin")` + CSRF, wire cadence in integer ms.
+  Validation lives ONCE in `internal/server/probeadmin` (type names,
+  cadence/train rules with per-surface `FieldNames`, and the per-type param
+  registry mirroring exactly what the agent probers read — tcp/tls mesh
+  `port`, `tls.*`, `http.*`, `dns.*`); both the CLI and httpapi call it, so
+  the CLI now REJECTS unknown `--param` keys, requires `dns.qname`, and
+  requires mesh tcp/tls `port` (fail-loud; bootstrap seeds comply). The
+  UUIDv5 mesh probe-ID derivation moved to leaf pkg
+  `internal/server/probeid` (meshexpand imports store, so store couldn't
+  reach it) — derivation unchanged, pinned by meshexpand tests. Probe PUT
+  edits cadence/params/enabled IN PLACE (identity — type/site/target/mesh —
+  is 400; probe IDs live in probe_results, so re-target = delete+create).
+  Deleting/disabling a probe (or mesh/member) cleans up at mutation time:
+  open `probe_failing` events get `closed_at = now()` (ingest's 3-OK close
+  can never fire for a probe that stopped existing — they'd stay open
+  forever), delete also drops `series_state`/`traceroute_current` rows,
+  disable only resets hysteresis counters and keeps `last_time`. Mesh
+  delete cascades templates (FK) and reports `probes_deleted`; in-use
+  target deletes are 409 `InUseError` naming the count (store has typed
+  `ErrNotFound`/`ErrConflict`/`InUseError` — httpapi maps without string
+  matching). `probe_configs` gained `updated_at`/`updated_by` (CLI writes
+  "cli", UI the session username) by editing 0002 in place (pre-release
+  convention — dev DBs need `make reset`). CLI additions: `mesh delete`.
+  SPA: `apiDelete` in api.ts, config types in types.ts, panels
+  `TargetsPanel`/`MeshesPanel`/`ProbesPanel` + shared `ConfirmButton`
+  (inline two-step confirm carrying blast radius; the codebase stays
+  modal-free), probe param fields render FROM the registry endpoint
+  (bool→checkbox, enum→select) so form and server can't drift, forms follow
+  the ThresholdSettings draft-null/dirty/save pattern, `button.primary` is
+  now a general style (was `.threshold-foot`-scoped).
+
 - Template-theme refactor (2026-08-03): the whole dashboard was restyled to
   a shadcn-flavored admin look (zinc neutrals, hairline borders, indigo
   `--accent`, 8/12 px radii, `--shadow-card` on light only) via retokenized
