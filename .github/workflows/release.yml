@@ -1,0 +1,149 @@
+# Release pipeline, triggered by version tags (vX.Y.Z):
+#   images  → multi-arch (amd64+arm64) server/agent/proxy pushed to
+#             ghcr.io/devalexllc, tagged <tag> + latest
+#   rpms    → agent RPMs for x86_64/aarch64 (binaries cross-compiled by Go,
+#             packaged by rpmbuild in rockylinux:9)
+#   bundle  → per-arch air-gap bundles from the just-pushed images,
+#             attached to a GitHub release with the RPMs + SHA256SUMS
+#
+# The Go build stage cross-compiles on the build platform ($BUILDPLATFORM
+# in the Dockerfiles); QEMU only executes the tiny final-stage RUNs
+# (adduser/setcap) on the target arch.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { name: server, file: deploy/docker/server.Dockerfile, target: "" }
+          # release explicitly: the agent Dockerfile's default target is dev
+          - { name: agent, file: deploy/docker/agent.Dockerfile, target: release }
+          - { name: proxy, file: deploy/docker/proxy.Dockerfile, target: "" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe needs tags
+      - id: meta
+        run: |
+          echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+          tags: |
+            ghcr.io/devalexllc/lighthouse-${{ matrix.name }}:${{ github.ref_name }}
+            ghcr.io/devalexllc/lighthouse-${{ matrix.name }}:latest
+
+  rpms:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { rpmarch: x86_64, goarch: amd64 }
+          - { rpmarch: aarch64, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Cross-compile agent
+        env:
+          GOFLAGS: -mod=vendor
+          GOPROXY: "off"
+          GOTOOLCHAIN: local
+        run: make agent-linux-${{ matrix.goarch }}
+      - name: Build RPM (rockylinux:9)
+        run: |
+          V="$(git describe --tags --always)" # computed here: no git in the container
+          docker run --rm -v "$PWD:/src" -w /src rockylinux:9 sh -c \
+            "dnf install -y -q rpm-build systemd-rpm-macros make && \
+             make rpm-build RPM_TARGET=${{ matrix.rpmarch }} \
+               RPM_BINARY=bin/lighthouse-agent-linux-${{ matrix.goarch }} \
+               VERSION=$V"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.rpmarch }}
+          path: dist/rpm/RPMS/${{ matrix.rpmarch }}/*.rpm
+          if-no-files-found: error
+
+  bundle:
+    needs: [images, rpms]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      # ghcr packages can be private (they are on first push): authenticate
+      # the pulls the bundle script performs.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rpm-*
+          path: dist/rpm/RPMS-download
+      - name: Stage RPMs where the bundle script looks
+        run: |
+          mkdir -p dist/rpm/RPMS/all
+          find dist/rpm/RPMS-download -name '*.rpm' -exec cp {} dist/rpm/RPMS/all/ \;
+      - name: Assemble bundle
+        run: deploy/release/build-bundle.sh "${{ github.ref_name }}" "${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.arch }}
+          path: dist/lighthouse-*-bundle.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          find artifacts -name '*.tar.gz' -exec cp {} release/ \;
+          find artifacts -name '*.rpm' -exec cp {} release/ \;
+          (cd release && sha256sum * > SHA256SUMS)
+          ls -l release
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" release/* \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
