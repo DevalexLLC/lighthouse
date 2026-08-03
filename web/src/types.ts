@@ -47,6 +47,27 @@ export interface AgentsResponse {
   agents: AgentInfo[]
 }
 
+// GET /api/v1/agents/health — 24h of per-agent probe success counts in
+// 30-min buckets. Buckets are sparse and agents with no results in the
+// window are absent: join on id against /api/v1/agents and render missing
+// data honestly (never an invented 100%).
+export interface AgentHealthBucket {
+  t: number // bucket start, UTC epoch seconds
+  samples: number
+  ok: number
+}
+
+export interface AgentHealth {
+  id: string
+  buckets: AgentHealthBucket[]
+}
+
+export interface AgentHealthResponse {
+  window: string
+  bucket_s: number
+  agents: AgentHealth[]
+}
+
 export type CellStatus = 'ok' | 'degraded' | 'down' | 'stale'
 
 export interface MatrixProbe {

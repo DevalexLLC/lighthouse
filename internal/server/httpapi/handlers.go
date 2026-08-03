@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -72,6 +73,57 @@ func (a *api) handleAgents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": out})
+}
+
+// Fleet sparkline resolution: 48 slots over 24 h. Deliberately not
+// windows.go's 24h spec (1-min chart buckets) — this endpoint returns every
+// agent in one response and only ever serves the fleet card.
+const (
+	agentHealthWindow = 24 * time.Hour
+	agentHealthBucket = 30 * time.Minute
+)
+
+type agentHealthBucketJSON struct {
+	T       int64 `json:"t"` // bucket start, UTC epoch seconds
+	Samples int64 `json:"samples"`
+	OK      int64 `json:"ok"`
+}
+
+type agentHealthJSON struct {
+	ID      string                  `json:"id"`
+	Buckets []agentHealthBucketJSON `json:"buckets"`
+}
+
+// handleAgentHealth serves per-agent bucketed probe success counts for the
+// fleet card. Buckets are sparse (only buckets with samples appear) and
+// agents with no rows in the window are absent — the SPA joins on id against
+// /api/v1/agents and renders honest "no data" rather than an invented 100 %.
+func (a *api) handleAgentHealth(w http.ResponseWriter, r *http.Request) {
+	if win := r.URL.Query().Get("window"); win != "" && win != "24h" {
+		writeError(w, http.StatusBadRequest, "unknown window (want 24h)")
+		return
+	}
+	rows, err := a.db.AgentHealthSeries(r.Context(), agentHealthWindow, agentHealthBucket,
+		int16(pb.ProbeType_PROBE_TYPE_TRACEROUTE))
+	if err != nil {
+		internalError(w, "agent health", err)
+		return
+	}
+	agents := []agentHealthJSON{}
+	for _, row := range rows {
+		id := row.AgentID.String()
+		if len(agents) == 0 || agents[len(agents)-1].ID != id {
+			agents = append(agents, agentHealthJSON{ID: id, Buckets: []agentHealthBucketJSON{}})
+		}
+		last := &agents[len(agents)-1]
+		last.Buckets = append(last.Buckets,
+			agentHealthBucketJSON{T: row.Bucket.Unix(), Samples: row.Samples, OK: row.OK})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"window":   "24h",
+		"bucket_s": int(agentHealthBucket.Seconds()),
+		"agents":   agents,
+	})
 }
 
 func (a *api) handleMatrix(w http.ResponseWriter, r *http.Request) {

@@ -22,13 +22,16 @@ import (
 // fakeDB implements DB in memory. Only the parts each test exercises are
 // populated; unhandled paths return zero values.
 type fakeDB struct {
-	users     map[string]*store.UserInfo
-	sessions  map[string]*store.SessionInfo // key: string(token_hash)
-	outages   []store.OutageInfo
-	agents    []store.AgentListInfo
-	sites     []store.SiteInfo
-	endpoints map[string]*store.SiteEndpoints
-	settings  *store.ThresholdSettings
+	users       map[string]*store.UserInfo
+	sessions    map[string]*store.SessionInfo // key: string(token_hash)
+	outages     []store.OutageInfo
+	agents      []store.AgentListInfo
+	agentHealth []store.AgentHealthBucket
+	// probe type the last AgentHealthSeries call was told to exclude
+	lastHealthExclude int16
+	sites             []store.SiteInfo
+	endpoints         map[string]*store.SiteEndpoints
+	settings          *store.ThresholdSettings
 
 	pairSummary          *store.PairSummaryRow
 	pairSeries           []store.SeriesBucket
@@ -91,6 +94,10 @@ func (f *fakeDB) DeleteExpiredSessions(_ context.Context) (int64, error) { retur
 func (f *fakeDB) ListSites(_ context.Context) ([]store.SiteInfo, error) { return f.sites, nil }
 func (f *fakeDB) ListAgents(_ context.Context) ([]store.AgentListInfo, error) {
 	return f.agents, nil
+}
+func (f *fakeDB) AgentHealthSeries(_ context.Context, _, _ time.Duration, excludeProbeType int16) ([]store.AgentHealthBucket, error) {
+	f.lastHealthExclude = excludeProbeType
+	return f.agentHealth, nil
 }
 func (f *fakeDB) MatrixLatest(_ context.Context, _ time.Duration) ([]store.MatrixRow, error) {
 	return nil, nil
@@ -256,7 +263,7 @@ func TestSessionRequired(t *testing.T) {
 	h := newTestAPI(t, newFakeDB())
 	for _, path := range []string{
 		"/api/v1/auth/me", "/api/v1/sites", "/api/v1/agents", "/api/v1/matrix",
-		"/api/v1/pairs/a/b", "/api/v1/pairs/a/b/series",
+		"/api/v1/agents/health", "/api/v1/pairs/a/b", "/api/v1/pairs/a/b/series",
 	} {
 		req := httptest.NewRequest("GET", path, nil)
 		w := httptest.NewRecorder()
@@ -267,6 +274,83 @@ func TestSessionRequired(t *testing.T) {
 		if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 			t.Errorf("GET %s: content-type %q, want JSON", path, ct)
 		}
+	}
+}
+
+func TestAgentHealth(t *testing.T) {
+	f := newFakeDB()
+	agentA := uuid.New()
+	agentB := uuid.New()
+	t0 := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	f.agentHealth = []store.AgentHealthBucket{
+		{AgentID: agentA, Bucket: t0, Samples: 240, OK: 238},
+		{AgentID: agentA, Bucket: t0.Add(30 * time.Minute), Samples: 240, OK: 240},
+		{AgentID: agentB, Bucket: t0, Samples: 60, OK: 0},
+	}
+	h := newTestAPI(t, f)
+	cookie, _ := loginAndCookie(t, h, f)
+
+	req := httptest.NewRequest("GET", "/api/v1/agents/health?window=24h", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("agents/health = %d %s", w.Code, w.Body)
+	}
+	var res struct {
+		Window  string `json:"window"`
+		BucketS int    `json:"bucket_s"`
+		Agents  []struct {
+			ID      string `json:"id"`
+			Buckets []struct {
+				T       int64 `json:"t"`
+				Samples int64 `json:"samples"`
+				OK      int64 `json:"ok"`
+			} `json:"buckets"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("bad body: %v", err)
+	}
+	if res.Window != "24h" || res.BucketS != 1800 {
+		t.Errorf("window/bucket_s = %q/%d, want 24h/1800", res.Window, res.BucketS)
+	}
+	if len(res.Agents) != 2 {
+		t.Fatalf("agents = %d, want 2 (rows grouped per agent)", len(res.Agents))
+	}
+	if res.Agents[0].ID != agentA.String() || len(res.Agents[0].Buckets) != 2 {
+		t.Errorf("first agent = %s with %d buckets, want %s with 2",
+			res.Agents[0].ID, len(res.Agents[0].Buckets), agentA)
+	}
+	if b := res.Agents[0].Buckets[0]; b.T != t0.Unix() || b.Samples != 240 || b.OK != 238 {
+		t.Errorf("first bucket = %+v", b)
+	}
+	if res.Agents[1].ID != agentB.String() || res.Agents[1].Buckets[0].OK != 0 {
+		t.Errorf("second agent = %+v", res.Agents[1])
+	}
+	// Traceroute run-accounting rows must be excluded from the ratio.
+	if f.lastHealthExclude != int16(pb.ProbeType_PROBE_TYPE_TRACEROUTE) {
+		t.Errorf("excluded probe type = %d, want traceroute (%d)",
+			f.lastHealthExclude, int16(pb.ProbeType_PROBE_TYPE_TRACEROUTE))
+	}
+
+	// Empty fleet must serve an empty list, not null.
+	f.agentHealth = nil
+	req = httptest.NewRequest("GET", "/api/v1/agents/health", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"agents":[]`) {
+		t.Errorf("empty fleet = %d %s, want 200 with agents:[]", w.Code, w.Body)
+	}
+
+	// Only the 24h window exists.
+	req = httptest.NewRequest("GET", "/api/v1/agents/health?window=7d", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("window=7d = %d, want 400", w.Code)
 	}
 }
 

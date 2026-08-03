@@ -126,6 +126,14 @@ type AgentListInfo struct {
 	LastDroppedAt  *time.Time
 }
 
+// AgentHealthBucket is one time bucket of one agent's probe success ratio.
+type AgentHealthBucket struct {
+	AgentID uuid.UUID
+	Bucket  time.Time
+	Samples int64
+	OK      int64
+}
+
 // MatrixRow is the latest result of one (agent, agent-target, probe type)
 // series, mapped to its ordered site pair.
 type MatrixRow struct {
@@ -248,6 +256,38 @@ func (s *Store) ListAgents(ctx context.Context) ([]AgentListInfo, error) {
 			return nil, fmt.Errorf("list agents: %w", err)
 		}
 		out = append(out, ai)
+	}
+	return out, rows.Err()
+}
+
+// AgentHealthSeries buckets every agent's probe results over the window into
+// total/successful counts, ordered by agent then bucket. Rows of
+// excludeProbeType are skipped: the caller passes traceroute, whose
+// run-accounting rows (sent=1, all timings NULL) count as samples and would
+// poison a success ratio (store deliberately does not import pb, so the
+// constant travels as a parameter). status <> 1 — including UNSUPPORTED — is
+// a failure. Windows must stay inside raw retention (14 d); this reads
+// probe_results directly.
+func (s *Store) AgentHealthSeries(ctx context.Context, window, bucket time.Duration, excludeProbeType int16) ([]AgentHealthBucket, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT agent_id, time_bucket($1::interval, time) AS bucket,
+		        count(*), count(*) FILTER (WHERE status = 1)
+		   FROM probe_results
+		  WHERE time > now() - $2::interval
+		    AND probe_type <> $3
+		  GROUP BY agent_id, bucket
+		  ORDER BY agent_id, bucket`, bucket, window, excludeProbeType)
+	if err != nil {
+		return nil, fmt.Errorf("agent health series: %w", err)
+	}
+	defer rows.Close()
+	var out []AgentHealthBucket
+	for rows.Next() {
+		var b AgentHealthBucket
+		if err := rows.Scan(&b.AgentID, &b.Bucket, &b.Samples, &b.OK); err != nil {
+			return nil, fmt.Errorf("agent health series: %w", err)
+		}
+		out = append(out, b)
 	}
 	return out, rows.Err()
 }

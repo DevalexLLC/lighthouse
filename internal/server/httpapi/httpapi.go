@@ -27,6 +27,7 @@ type DB interface {
 
 	ListSites(ctx context.Context) ([]store.SiteInfo, error)
 	ListAgents(ctx context.Context) ([]store.AgentListInfo, error)
+	AgentHealthSeries(ctx context.Context, window, bucket time.Duration, excludeProbeType int16) ([]store.AgentHealthBucket, error)
 	MatrixLatest(ctx context.Context, horizon time.Duration) ([]store.MatrixRow, error)
 	ExpectedPairs(ctx context.Context) ([]store.SitePair, error)
 	SiteEndpoints(ctx context.Context, siteName string) (*store.SiteEndpoints, error)
@@ -74,6 +75,7 @@ func New(sdb DB, static fs.FS) http.Handler {
 	mux.Handle("GET /api/v1/auth/me", a.withSession(a.handleMe))
 	mux.Handle("GET /api/v1/sites", a.withSession(a.handleSites))
 	mux.Handle("GET /api/v1/agents", a.withSession(a.handleAgents))
+	mux.Handle("GET /api/v1/agents/health", a.withSession(a.handleAgentHealth))
 	mux.Handle("GET /api/v1/matrix", a.withSession(a.handleMatrix))
 	mux.Handle("GET /api/v1/settings", a.withSession(a.handleSettingsGet))
 	// withSession outermost: it populates the session context requireRole
