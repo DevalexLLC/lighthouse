@@ -50,6 +50,10 @@ Subjects are imperative, lowercase, no more than 72 characters, and have no
 trailing period. Wrap bodies at 72 characters and explain why the change is
 needed. Reference issues in trailers such as `Refs: #123`.
 
+`main` takes no direct pushes — a GitHub ruleset with no bypass actors covers
+maintainers too. Branch, open a PR, and merge once all five required checks
+pass; no approval is needed.
+
 PRs should describe the behavior change, link relevant issues, and list exact
 verification commands. Bug fixes must include observed broken and fixed
 outputs. Include screenshots for visible dashboard changes and commit updated
