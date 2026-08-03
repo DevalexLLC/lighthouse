@@ -369,6 +369,16 @@ Full design + milestone plan: `docs/architecture.md`.
   breaks or lies). Dev loop: `make up` + `cd web && npm run dev` (Vite
   proxies /api to https://localhost:9443). Dev dashboard login:
   `admin`/`lighthouse-dev` (seeded by bootstrap).
+- Typechecking is TypeScript 7 (the native Go port; `typescript` pulls a
+  per-platform binary from 20 `@typescript/typescript-*` optional deps —
+  all 20 are in `package-lock.json` with `os`/`cpu` guards, so `npm ci`
+  resolves on any dev machine). TS 7 errors (TS2882) on side-effect
+  imports of modules with no declarations, which is why `src/vite-env.d.ts`
+  (`/// <reference types="vite/client" />`) exists — it supplies the
+  `declare module '*.css'` that `src/main.tsx`'s two CSS imports need.
+  Deleting it breaks `npm run build`, not just the editor. Emitted `dist/`
+  bytes are unchanged by the compiler swap: Vite transpiles with its own
+  bundler and only ever runs `tsc -b` as a gate.
 ### M4 notes worth knowing
 
 - A series is `(agent_id, probe_id)`. Hysteresis (open after 3 consecutive
