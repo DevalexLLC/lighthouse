@@ -36,10 +36,7 @@ export function worst(a: Severity, b: Severity): Severity {
 // directionSeverity grades one direction's matrix cell. A missing cell
 // (configured pair with no data at all) grades stale. Null thresholds
 // (settings not yet loaded) grade on status alone.
-export function directionSeverity(
-  cell: MatrixCell | undefined,
-  t: ThresholdSettings | null,
-): Severity {
+export function directionSeverity(cell: MatrixCell | undefined, t: ThresholdSettings | null): Severity {
   if (!cell || cell.status === 'stale') return 'stale'
   if (cell.status === 'down') return 'down'
   // Degraded (some checks failing) floors at warn; thresholds may raise it.

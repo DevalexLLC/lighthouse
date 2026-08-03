@@ -24,7 +24,7 @@ RPM_ARCHS  ?= x86_64 aarch64
 # Published image registry/namespace (ghcr requires lowercase).
 REGISTRY ?= ghcr.io/devalexllc
 
-.PHONY: all build server agent test lint vet proto web vendor up down reset logs ps seed clean rpm images bundle
+.PHONY: all build server agent test lint vet proto web web-fix vendor up down reset logs ps seed clean rpm images bundle
 
 all: build
 
@@ -107,8 +107,14 @@ BUNDLE_ARCH ?= $(shell docker version --format '{{.Server.Arch}}' 2>/dev/null ||
 proto:
 	$(GO) run -mod=vendor github.com/bufbuild/buf/cmd/buf generate 2>/dev/null || buf generate
 
+# Lint and format-check before building: the SPA gate is the only place the
+# committed web/dist can be regenerated, so it is also where style problems
+# must surface. `make web-fix` auto-fixes what it can.
 web:
-	cd web && npm ci && npm run build
+	cd web && npm ci && npm run lint && npm run fmt:check && npm run build
+
+web-fix:
+	cd web && npm run lint:fix && npm run fmt
 
 vendor:
 	$(GO) mod tidy

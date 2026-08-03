@@ -120,10 +120,7 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
     }
   }, [load])
 
-  const active = useMemo(
-    () => outages?.outages.filter((o) => o.closed_at == null) ?? [],
-    [outages],
-  )
+  const active = useMemo(() => outages?.outages.filter((o) => o.closed_at == null) ?? [], [outages])
   const activeGroups = useMemo(() => {
     const groups = new Map<string, { key: string; cause: string; probe: string; events: OutageEvent[] }>()
     for (const event of active) {
@@ -138,9 +135,8 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
   }, [active])
   const activeTargetCount = new Set(active.map(targetKey)).size
   const attention = agents?.agents.filter((a) => attentionReason(a) != null) ?? []
-  const healthyDirections = matrix?.cells.filter(
-    (cell) => directionSeverity(cell, settings?.thresholds ?? null) === 'ok',
-  ).length ?? 0
+  const healthyDirections =
+    matrix?.cells.filter((cell) => directionSeverity(cell, settings?.thresholds ?? null) === 'ok').length ?? 0
   const totalDirections = matrix?.cells.length ?? 0
   const availableSites = matrix
     ? matrix.sites.filter((site) => {
@@ -155,8 +151,21 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
       }).length
     : 0
 
-  if (error && !matrix) return <div className="state-panel state-error"><h1>Overview unavailable</h1><p>{error}</p><button onClick={() => void load()}>Try again</button></div>
-  if (!matrix || !agents || !outages) return <div className="state-panel" role="status"><span className="state-spinner" />Loading network overview…</div>
+  if (error && !matrix)
+    return (
+      <div className="state-panel state-error">
+        <h1>Overview unavailable</h1>
+        <p>{error}</p>
+        <button onClick={() => void load()}>Try again</button>
+      </div>
+    )
+  if (!matrix || !agents || !outages)
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading network overview…
+      </div>
+    )
 
   return (
     <>
@@ -174,12 +183,19 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
         </div>
       </div>
 
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
 
       <section className="stat-grid" aria-label="Network health summary">
         <a className={'stat-card' + ratioStatus(availableSites, matrix.sites.length)} href="#/agents">
           <span className="stat-label">Sites available</span>
-          <strong>{availableSites}<small> / {matrix.sites.length}</small></strong>
+          <strong>
+            {availableSites}
+            <small> / {matrix.sites.length}</small>
+          </strong>
           <span className="stat-context">
             <span className="stat-badge">
               {matrix.sites.length === 0
@@ -200,7 +216,10 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
           }}
         >
           <span className="stat-label">Healthy directions</span>
-          <strong>{healthyDirections}<small> / {totalDirections}</small></strong>
+          <strong>
+            {healthyDirections}
+            <small> / {totalDirections}</small>
+          </strong>
           <span className="stat-context">
             <span className="stat-badge">
               {totalDirections === 0
@@ -217,7 +236,9 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
           <strong>{activeGroups.length}</strong>
           <span className="stat-context">
             <span className="stat-badge">{activeGroups.length > 0 ? 'Active' : 'Clear'}</span>
-            {active.length === 0 ? 'No active incidents' : `${activeTargetCount} affected ${activeTargetCount === 1 ? 'target' : 'targets'}`}
+            {active.length === 0
+              ? 'No active incidents'
+              : `${activeTargetCount} affected ${activeTargetCount === 1 ? 'target' : 'targets'}`}
           </span>
         </a>
         <a className={'stat-card ' + (attention.length > 0 ? 'stat-warning' : 'stat-good')} href="#/agents">
@@ -239,7 +260,6 @@ export default function Overview({ onAuthError }: { onAuthError: (err: unknown) 
         />
         <FleetAgentsCard agents={agents.agents} health={health} />
       </div>
-
     </>
   )
 }

@@ -18,6 +18,9 @@ const PROBE_PAGE = 25
 // (internal/server/probeadmin): a zero train budgets as 10 × 200 ms.
 const DEFAULT_TRAIN_COUNT = 10
 const DEFAULT_TRAIN_SPACING_MS = 200
+// Stable identity for the not-yet-loaded case: a fresh `[]` per render would
+// change the memo key every render and defeat the pagination memo below.
+const NO_PROBES: ProbeConfig[] = []
 
 interface ProbeDraft {
   mode: 'mesh' | 'direct'
@@ -34,15 +37,26 @@ interface ProbeDraft {
 
 function newDraft(): ProbeDraft {
   return {
-    mode: 'mesh', mesh: '', site: '', target: '', type: 'icmp',
-    intervalS: '30', timeoutS: '5', trainCount: '', trainSpacingMs: '', params: {},
+    mode: 'mesh',
+    mesh: '',
+    site: '',
+    target: '',
+    type: 'icmp',
+    intervalS: '30',
+    timeoutS: '5',
+    trainCount: '',
+    trainSpacingMs: '',
+    params: {},
   }
 }
 
 function draftFrom(p: ProbeConfig): ProbeDraft {
   return {
     mode: p.mesh ? 'mesh' : 'direct',
-    mesh: p.mesh ?? '', site: p.site ?? '', target: p.target ?? '', type: p.type,
+    mesh: p.mesh ?? '',
+    site: p.site ?? '',
+    target: p.target ?? '',
+    type: p.type,
     intervalS: String(p.interval_ms / 1000),
     timeoutS: String(p.timeout_ms / 1000),
     trainCount: p.train_count ? String(p.train_count) : '',
@@ -210,8 +224,7 @@ export default function ProbesPanel({
     }
   }, [onAuthError])
 
-  const reload = () =>
-    apiGet<ProbesConfigResponse>('/api/v1/config/probes').then(setData).catch(onAuthError)
+  const reload = () => apiGet<ProbesConfigResponse>('/api/v1/config/probes').then(setData).catch(onAuthError)
 
   const create = async () => {
     if (!draft) return
@@ -221,10 +234,7 @@ export default function ProbesPanel({
     if (!body) return
     setBusy(true)
     try {
-      const assignment =
-        draft.mode === 'mesh'
-          ? { mesh: draft.mesh }
-          : { site: draft.site, target: draft.target }
+      const assignment = draft.mode === 'mesh' ? { mesh: draft.mesh } : { site: draft.site, target: draft.target }
       await apiPost('/api/v1/config/probes', { ...assignment, type: draft.type, ...body })
       setDraft(null)
       setSavedFlash(true)
@@ -292,14 +302,24 @@ export default function ProbesPanel({
     }
   }
 
-  const probes = data?.probes ?? []
+  const probes = data?.probes ?? NO_PROBES
   const shown = useMemo(() => probes.slice(0, visible), [probes, visible])
 
   if (error && !data) {
-    return <div className="state-panel state-error"><h2>Probes unavailable</h2><p>{error}</p></div>
+    return (
+      <div className="state-panel state-error">
+        <h2>Probes unavailable</h2>
+        <p>{error}</p>
+      </div>
+    )
   }
   if (!data) {
-    return <div className="state-panel" role="status"><span className="state-spinner" />Loading probes…</div>
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading probes…
+      </div>
+    )
   }
 
   const numField = (
@@ -329,10 +349,7 @@ export default function ProbesPanel({
     </label>
   )
 
-  const paramFields = (
-    d: ProbeDraft,
-    set: (fn: (d: ProbeDraft) => ProbeDraft) => void,
-  ) => {
+  const paramFields = (d: ProbeDraft, set: (fn: (d: ProbeDraft) => ProbeDraft) => void) => {
     const specs = paramSpecsFor(registry, d.type, d.mode)
     if (specs.length === 0) return null
     const setParam = (key: string, value: string) =>
@@ -367,7 +384,11 @@ export default function ProbesPanel({
                     onChange={(e) => setParam(spec.key, e.target.value)}
                   >
                     <option value="">default</option>
-                    {(spec.enum ?? []).map((v) => <option key={v} value={v}>{v}</option>)}
+                    {(spec.enum ?? []).map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
                   </select>
                   <span className="hint">{spec.hint}</span>
                 </span>
@@ -402,48 +423,75 @@ export default function ProbesPanel({
     </div>
   )
 
-  const setCreateDraft = (fn: (d: ProbeDraft) => ProbeDraft) =>
-    setDraft((d) => fn(d ?? newDraft()))
-  const setEditDraftFn = (fn: (d: ProbeDraft) => ProbeDraft) =>
-    setEditDraft((d) => (d ? fn(d) : d))
+  const setCreateDraft = (fn: (d: ProbeDraft) => ProbeDraft) => setDraft((d) => fn(d ?? newDraft()))
+  const setEditDraftFn = (fn: (d: ProbeDraft) => ProbeDraft) => setEditDraft((d) => (d ? fn(d) : d))
 
   const createDraft = draft ?? newDraft()
 
   return (
     <>
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
       <section className="card settings-card config-card">
         <div className="card-head">
-          <div><span className="eyebrow">Measurement workload</span><h2>Probes</h2></div>
+          <div>
+            <span className="eyebrow">Measurement workload</span>
+            <h2>Probes</h2>
+          </div>
           <span className="hint">Changes reach agents within ~30s · refreshes every 30s</span>
         </div>
         <p className="section-intro">
-          Direct probes run from every agent at a site against one target; mesh templates expand over
-          every ordered pair of member sites. Type and assignment are fixed once created — cadence,
-          params, and enabled state edit in place so history stays continuous.
+          Direct probes run from every agent at a site against one target; mesh templates expand over every ordered pair
+          of member sites. Type and assignment are fixed once created — cadence, params, and enabled state edit in place
+          so history stays continuous.
         </p>
-        {rowError && <ul className="error threshold-errors"><li>{rowError}</li></ul>}
+        {rowError && (
+          <ul className="error threshold-errors">
+            <li>{rowError}</li>
+          </ul>
+        )}
         {probes.length === 0 ? (
-          <div className="empty-state"><strong>No probes configured</strong><span>Add one below; agents pick it up within ~30 seconds.</span></div>
+          <div className="empty-state">
+            <strong>No probes configured</strong>
+            <span>Add one below; agents pick it up within ~30 seconds.</span>
+          </div>
         ) : (
           <div className="scroll-x">
             <table className="events">
               <thead>
                 <tr>
-                  <th>Type</th><th>Assignment</th><th>Interval</th><th>Timeout</th>
-                  <th>Params</th><th>State</th><th>Updated</th>
-                  {isAdmin && <th className="actions-col"><span className="sr-only">Actions</span></th>}
+                  <th>Type</th>
+                  <th>Assignment</th>
+                  <th>Interval</th>
+                  <th>Timeout</th>
+                  <th>Params</th>
+                  <th>State</th>
+                  <th>Updated</th>
+                  {isAdmin && (
+                    <th className="actions-col">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {shown.map((p) => (
                   <>
                     <tr key={p.id} className={p.enabled ? '' : 'probe-disabled'}>
-                      <td data-label="Type" className="mono">{p.type}</td>
-                      <td data-label="Assignment" className="mono">{assignmentLabel(p)}</td>
+                      <td data-label="Type" className="mono">
+                        {p.type}
+                      </td>
+                      <td data-label="Assignment" className="mono">
+                        {assignmentLabel(p)}
+                      </td>
                       <td data-label="Interval">{p.interval_ms / 1000}s</td>
                       <td data-label="Timeout">{p.timeout_ms / 1000}s</td>
-                      <td data-label="Params" className="mono config-params-cell">{paramsSummary(p)}</td>
+                      <td data-label="Params" className="mono config-params-cell">
+                        {paramsSummary(p)}
+                      </td>
                       <td data-label="State">
                         <span className={'chip' + (p.enabled ? '' : ' chip-alert')}>
                           {p.enabled ? 'enabled' : 'disabled'}
@@ -496,13 +544,18 @@ export default function ProbesPanel({
                           <div className="config-form">
                             <h3 className="eyebrow">
                               Edit {p.type} · {assignmentLabel(p)}
-                              <span className="hint"> — type and assignment are fixed; delete and re-create to re-target</span>
+                              <span className="hint">
+                                {' '}
+                                — type and assignment are fixed; delete and re-create to re-target
+                              </span>
                             </h3>
                             {cadenceFields(editDraft, setEditDraftFn)}
                             {paramFields(editDraft, setEditDraftFn)}
                             {editErrors.length > 0 && (
                               <ul className="error threshold-errors">
-                                {editErrors.map((e) => <li key={e}>{e}</li>)}
+                                {editErrors.map((e) => (
+                                  <li key={e}>{e}</li>
+                                ))}
                               </ul>
                             )}
                             <div className="threshold-foot">
@@ -523,11 +576,7 @@ export default function ProbesPanel({
         )}
         {probes.length > visible && (
           <div className="progressive-footer">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setVisible((v) => v + PROBE_PAGE)}
-            >
+            <button type="button" className="secondary-button" onClick={() => setVisible((v) => v + PROBE_PAGE)}>
               Show {Math.min(PROBE_PAGE, probes.length - visible)} more
             </button>
           </div>
@@ -536,7 +585,10 @@ export default function ProbesPanel({
           <div className="config-form">
             <h3 className="eyebrow">Add probe</h3>
             <div className="config-form-grid">
-              <label className="threshold-field">
+              {/* A <label> would be wrong here: this field holds a button
+                  group, not a form control, so there is nothing for the
+                  label to name. The group carries its own accessible name. */}
+              <div className="threshold-field">
                 <span className="eyebrow">Assignment</span>
                 <span className="control-group config-mode" role="group" aria-label="Probe assignment">
                   <button
@@ -566,21 +618,21 @@ export default function ProbesPanel({
                     Direct
                   </button>
                 </span>
-              </label>
+              </div>
               <label className="threshold-field">
                 <span className="eyebrow">Type</span>
                 <span className="threshold-input">
                   <select
                     value={createDraft.type}
                     disabled={busy}
-                    onChange={(e) =>
-                      setCreateDraft((d) => ({ ...d, type: e.target.value, params: {} }))
-                    }
+                    onChange={(e) => setCreateDraft((d) => ({ ...d, type: e.target.value, params: {} }))}
                   >
                     {(registry?.types ?? [])
                       .filter((t) => !(createDraft.mode === 'mesh' && t.direct_only))
                       .map((t) => (
-                        <option key={t.type} value={t.type}>{t.type}</option>
+                        <option key={t.type} value={t.type}>
+                          {t.type}
+                        </option>
                       ))}
                   </select>
                 </span>
@@ -595,7 +647,11 @@ export default function ProbesPanel({
                       onChange={(e) => setCreateDraft((d) => ({ ...d, mesh: e.target.value }))}
                     >
                       <option value="">pick…</option>
-                      {meshes.map((m) => <option key={m} value={m}>{m}</option>)}
+                      {meshes.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
                     </select>
                   </span>
                 </label>
@@ -610,7 +666,11 @@ export default function ProbesPanel({
                         onChange={(e) => setCreateDraft((d) => ({ ...d, site: e.target.value }))}
                       >
                         <option value="">pick…</option>
-                        {sites.map((s) => <option key={s} value={s}>{s}</option>)}
+                        {sites.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
                       </select>
                     </span>
                   </label>
@@ -623,7 +683,11 @@ export default function ProbesPanel({
                         onChange={(e) => setCreateDraft((d) => ({ ...d, target: e.target.value }))}
                       >
                         <option value="">pick…</option>
-                        {targets.map((t) => <option key={t} value={t}>{t}</option>)}
+                        {targets.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
                       </select>
                     </span>
                   </label>
@@ -634,7 +698,9 @@ export default function ProbesPanel({
             {paramFields(createDraft, setCreateDraft)}
             {formErrors.length > 0 && (
               <ul className="error threshold-errors">
-                {formErrors.map((e) => <li key={e}>{e}</li>)}
+                {formErrors.map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
               </ul>
             )}
             <div className="threshold-foot">

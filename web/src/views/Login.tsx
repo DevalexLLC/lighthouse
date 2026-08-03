@@ -35,8 +35,16 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
       <section className="login-context" aria-label="Product introduction">
         <LogoMark className="logo-mark login-context-mark" />
         <h1>See the network clearly.</h1>
-        <p>Monitor inter-site connectivity, correlate incidents, and investigate directional performance from one control plane.</p>
-        <div className="login-signals" aria-hidden="true"><span /><span /><span /><span /></div>
+        <p>
+          Monitor inter-site connectivity, correlate incidents, and investigate directional performance from one control
+          plane.
+        </p>
+        <div className="login-signals" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
       </section>
       <form className="login-card" onSubmit={submit} aria-busy={busy}>
         <div className="login-mark">
@@ -46,12 +54,11 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
         <p className="login-sub">Sign in to the Lighthouse control plane.</p>
         <label className="eyebrow">
           Username
-          <input
-            autoFocus
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
+          {/* Sign-in is this page's only purpose and this is its first field,
+              so focusing it costs no orientation and saves every operator a
+              keystroke. */}
+          {/* oxlint-disable-next-line jsx-a11y/no-autofocus */}
+          <input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>
         <label className="eyebrow">
           Password

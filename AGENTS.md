@@ -17,7 +17,9 @@ design documentation in `docs/`. Go dependencies are committed in `vendor/`.
 - `make lint`: run `go vet` and `staticcheck` when installed.
 - `make up` / `make down`: manage the base Compose stack and required dev
   overlay.
-- `make web`: install pinned npm dependencies and rebuild `web/dist/`.
+- `make web`: install pinned npm dependencies, lint and format-check the SPA
+  sources, then rebuild `web/dist/`.
+- `make web-fix`: apply oxlint autofixes and reformat with oxfmt.
 - `make proto`: regenerate protobuf and gRPC code in `internal/pb/`.
 
 After starting the stack, use `cd web && npm run dev` for Vite. Never run the
@@ -28,7 +30,9 @@ base Compose file alone for development.
 Format Go with `gofmt`; use tabs, lowercase packages, and conventional
 `MixedCaps` names. Return explicit errors rather than silent fallbacks.
 TypeScript is strict: use two-space indentation, single quotes, semicolon-free
-style, PascalCase components, and camelCase functions and variables. Preserve
+style, PascalCase components, and camelCase functions and variables — oxfmt
+and oxlint enforce this from `web/.oxfmtrc.json` and `web/.oxlintrc.json`, so
+run `make web-fix` rather than hand-matching the style. Preserve
 protobuf field numbers and regenerate committed artifacts after source changes.
 
 ## Testing Guidelines

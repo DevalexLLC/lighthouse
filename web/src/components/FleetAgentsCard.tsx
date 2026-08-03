@@ -39,15 +39,7 @@ function HealthStrip({
       aria-label={label}
     >
       {slots.map((cls, i) => (
-        <rect
-          key={i}
-          className={'fleet-strip-seg strip-' + cls}
-          x={i * 2}
-          y={1}
-          width={1.4}
-          height={10}
-          rx={0.7}
-        />
+        <rect key={i} className={'fleet-strip-seg strip-' + cls} x={i * 2} y={1} width={1.4} height={10} rx={0.7} />
       ))}
     </svg>
   )
@@ -117,15 +109,10 @@ export default function FleetAgentsCard({
                 // the measured span spelled out. Full confidence = every
                 // COMPLETED slot covered; the in-progress bucket is prorated
                 // into the measured hours but never decides coverage.
-                const completedCovered = inWindow.filter(
-                  (b) => b.samples > 0 && b.t < currentStart,
-                ).length
-                const currentHasData = inWindow.some(
-                  (b) => b.t >= currentStart && b.samples > 0,
-                )
+                const completedCovered = inWindow.filter((b) => b.samples > 0 && b.t < currentStart).length
+                const currentHasData = inWindow.some((b) => b.t >= currentStart && b.samples > 0)
                 const coveredHours =
-                  (completedCovered * bucketS) / 3600 +
-                  (currentHasData ? (nowS - currentStart) / 3600 : 0)
+                  (completedCovered * bucketS) / 3600 + (currentHasData ? (nowS - currentStart) / 3600 : 0)
                 const partial = uptime != null && completedCovered < SLOTS - 1
                 const stripLabel =
                   uptime == null
@@ -141,12 +128,7 @@ export default function FleetAgentsCard({
                     </td>
                     <td className="fleet-seen">{a.last_seen_at ? fmtAgo(a.last_seen_at) : 'never'}</td>
                     <td className="fleet-health">
-                      <HealthStrip
-                        buckets={inWindow}
-                        bucketS={bucketS}
-                        endS={endS}
-                        label={stripLabel}
-                      />
+                      <HealthStrip buckets={inWindow} bucketS={bucketS} endS={endS} label={stripLabel} />
                     </td>
                     <td className="fleet-uptime">
                       {uptime == null ? (

@@ -6,15 +6,13 @@
 // Contract shared with src/theme.ts: localStorage 'lighthouse-theme' holds
 // the *preference* ('light' | 'dark'; absent = system) while
 // document.documentElement.dataset.theme always holds the *resolved* scheme.
-(function () {
-  var pref = null;
+;(function () {
+  var pref = null
   try {
-    pref = localStorage.getItem('lighthouse-theme');
-  } catch (e) {
+    pref = localStorage.getItem('lighthouse-theme')
+  } catch {
     /* storage may be unavailable (private mode); fall through to system */
   }
-  var dark =
-    pref === 'dark' ||
-    (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-})();
+  var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+})()

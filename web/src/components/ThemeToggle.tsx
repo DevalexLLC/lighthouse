@@ -36,13 +36,7 @@ export default function ThemeToggle() {
   const { pref, setPref } = useTheme()
   const label = `${LABEL[pref]} — switch to ${LABEL[NEXT[pref]].toLowerCase()}`
   return (
-    <button
-      type="button"
-      className="theme-toggle"
-      aria-label={label}
-      title={label}
-      onClick={() => setPref(NEXT[pref])}
-    >
+    <button type="button" className="theme-toggle" aria-label={label} title={label} onClick={() => setPref(NEXT[pref])}>
       <Icon pref={pref} />
     </button>
   )

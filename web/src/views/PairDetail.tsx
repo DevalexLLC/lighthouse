@@ -35,6 +35,9 @@ const COLORS = {
   dark: { aToB: '#3987e5', bToA: '#d55181', grid: '#30312d', axis: '#b9b8ae' },
 }
 
+// Wire timings are microseconds; charts plot milliseconds.
+const ms = (v: number | null | undefined) => (v == null ? null : v / 1000)
+
 // withPctl must match the series list mkOptions builds for the same render:
 // uPlot requires data columns and series definitions to agree in count.
 function toChartData(points: SeriesPoint[], metric: Metric, withPctl: boolean): uPlot.AlignedData {
@@ -42,7 +45,6 @@ function toChartData(points: SeriesPoint[], metric: Metric, withPctl: boolean): 
   if (metric === 'loss') {
     return [ts, points.map((p) => p.loss_pct)]
   }
-  const ms = (v: number | null | undefined) => (v == null ? null : v / 1000)
   const cols: uPlot.AlignedData = [
     ts,
     points.map((p) => ms(p.avg_us)),
@@ -60,9 +62,7 @@ function toChartData(points: SeriesPoint[], metric: Metric, withPctl: boolean): 
 }
 
 function hasAnyValue(points: SeriesPoint[], metric: Metric): boolean {
-  return metric === 'loss'
-    ? points.some((p) => p.loss_pct != null)
-    : points.some((p) => p.avg_us != null)
+  return metric === 'loss' ? points.some((p) => p.loss_pct != null) : points.some((p) => p.avg_us != null)
 }
 
 function statusLabel(status: string): string {
@@ -125,15 +125,7 @@ function latestLegendPlugin(index: number): uPlot.Plugin {
   }
 }
 
-function DirectionCard({
-  title,
-  s,
-  dir,
-}: {
-  title: string
-  s: DirectionSummary
-  dir: 'a' | 'b'
-}) {
+function DirectionCard({ title, s, dir }: { title: string; s: DirectionSummary; dir: 'a' | 'b' }) {
   const checks = s.checks ?? []
   return (
     <div className={'pair-card dir-' + dir}>
@@ -149,27 +141,17 @@ function DirectionCard({
           {fmtLatencyParts(s.latency.avg_us).value}
           <span className="unit"> {fmtLatencyParts(s.latency.avg_us).unit}</span>
         </span>
-        <span className="eyebrow">
-          avg {latencyAxisLabel(s.latency_source).replace(' (ms)', '')}
-        </span>
+        <span className="eyebrow">avg {latencyAxisLabel(s.latency_source).replace(' (ms)', '')}</span>
       </div>
       <dl>
         <div>
           <dt>min / max</dt>
-          <dd>
-            {fmtLatencyGroup([s.latency.min_us, s.latency.max_us])}
-          </dd>
+          <dd>{fmtLatencyGroup([s.latency.min_us, s.latency.max_us])}</dd>
         </div>
         {s.latency.p50_us != null && (
           <div>
             <dt>p50 / p95 / p99</dt>
-            <dd>
-              {fmtLatencyGroup([
-                s.latency.p50_us,
-                s.latency.p95_us ?? null,
-                s.latency.p99_us ?? null,
-              ])}
-            </dd>
+            <dd>{fmtLatencyGroup([s.latency.p50_us, s.latency.p95_us ?? null, s.latency.p99_us ?? null])}</dd>
           </div>
         )}
         <div>
@@ -183,9 +165,7 @@ function DirectionCard({
         {(s.tcp_connect_avg_us != null || s.tls_handshake_avg_us != null) && (
           <div>
             <dt>TCP / TLS</dt>
-            <dd>
-              {fmtLatencyGroup([s.tcp_connect_avg_us, s.tls_handshake_avg_us])}
-            </dd>
+            <dd>{fmtLatencyGroup([s.tcp_connect_avg_us, s.tls_handshake_avg_us])}</dd>
           </div>
         )}
         <div>
@@ -250,9 +230,7 @@ function PathList({ title, dir, paths }: { title: string; dir: 'a' | 'b'; paths:
               {p.hops.map((h) => (
                 <li key={h.ttl}>
                   {h.addrs.length === 0 ? '*' : h.addrs.join(', ')}
-                  {h.rtt_us.length > 0 && (
-                    <span className="hint"> {fmtLatency(Math.min(...h.rtt_us))}</span>
-                  )}
+                  {h.rtt_us.length > 0 && <span className="hint"> {fmtLatency(Math.min(...h.rtt_us))}</span>}
                 </li>
               ))}
             </ol>
@@ -288,9 +266,7 @@ export default function PairDetail({
         apiGet<SeriesResponse>(
           `/api/v1/pairs/${encodeURIComponent(a)}/${encodeURIComponent(b)}/series?metric=${metric}&window=${win}`,
         ),
-        apiGet<TracerouteResponse>(
-          `/api/v1/traceroute/${encodeURIComponent(a)}/${encodeURIComponent(b)}`,
-        ),
+        apiGet<TracerouteResponse>(`/api/v1/traceroute/${encodeURIComponent(a)}/${encodeURIComponent(b)}`),
       ])
         .then(([p, s, tr]) => {
           if (!cancelled) {
@@ -332,7 +308,7 @@ export default function PairDetail({
         metric === 'loss'
           ? (_u: uPlot, v: number) => (v == null ? '—' : `${v.toFixed(1)}%`)
           : (_u: uPlot, v: number) => (v == null ? '—' : v.toFixed(3))
-      const series: uPlot.Series[] =
+      const chartSeries: uPlot.Series[] =
         metric === 'loss'
           ? [{}, { label: 'loss %', stroke, width: 2, spanGaps: false, value }]
           : [
@@ -343,7 +319,7 @@ export default function PairDetail({
             ]
       if (metric === 'latency' && withPctl) {
         // Aggregate windows only; must stay in lockstep with toChartData.
-        series.push(
+        chartSeries.push(
           { label: 'p50', stroke, width: 1.5, alpha: 0.7, spanGaps: false, value },
           { label: 'p95', stroke, width: 1, alpha: 0.55, dash: [6, 4], spanGaps: false, value },
           { label: 'p99', stroke, width: 1, alpha: 0.35, dash: [2, 4], spanGaps: false, value },
@@ -351,12 +327,9 @@ export default function PairDetail({
       }
       return {
         height: 230,
-        series,
+        series: chartSeries,
         scales: metric === 'loss' ? { y: { range: [0, lossCeiling] } } : {},
-        axes: [
-          { ...axisStyle },
-          { ...axisStyle, label: axisLabel, size: 64 },
-        ],
+        axes: [{ ...axisStyle }, { ...axisStyle, label: axisLabel, size: 64 }],
         cursor: { drag: { x: true, y: false } },
         legend: { live: true },
         plugins: [latestLegendPlugin(latestIndex)],
@@ -367,8 +340,20 @@ export default function PairDetail({
     // palette — this is what keeps charts recoloring live on toggle).
   }, [metric, resolved])
 
-  if (error && !series) return <div className="state-panel state-error"><h1>Pair detail unavailable</h1><p>{error}</p></div>
-  if (!series || !pair) return <div className="state-panel" role="status"><span className="state-spinner" />Loading pair detail…</div>
+  if (error && !series)
+    return (
+      <div className="state-panel state-error">
+        <h1>Pair detail unavailable</h1>
+        <p>{error}</p>
+      </div>
+    )
+  if (!series || !pair)
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading pair detail…
+      </div>
+    )
 
   const withPctl = metric === 'latency' && series.source !== 'raw'
   const lossCeiling = lossScaleCeiling(series)
@@ -392,8 +377,12 @@ export default function PairDetail({
     <>
       <div className="page-head page-head-primary">
         <div>
-          <div className="eyebrow"><a href="#/">Overview</a> / Pair detail</div>
-          <h1>{a} ⇄ {b}</h1>
+          <div className="eyebrow">
+            <a href="#/">Overview</a> / Pair detail
+          </div>
+          <h1>
+            {a} ⇄ {b}
+          </h1>
           <p>Directional health, measurements, and current network paths.</p>
         </div>
         <span className="sub">
@@ -417,12 +406,7 @@ export default function PairDetail({
         </div>
         <div className="control-group" role="group" aria-label="Window">
           {WINDOWS.map((w) => (
-            <button
-              key={w}
-              className={win === w ? 'active' : ''}
-              aria-pressed={win === w}
-              onClick={() => setWin(w)}
-            >
+            <button key={w} className={win === w ? 'active' : ''} aria-pressed={win === w} onClick={() => setWin(w)}>
               {w}
             </button>
           ))}
@@ -454,9 +438,7 @@ export default function PairDetail({
           <div key={key} className="card chart-card">
             <h3>
               <span className={'swatch series-' + dir} /> {title}
-              {metric === 'latency' && (
-                <span className="metric-source">{latencySourceName(directionSource)}</span>
-              )}
+              {metric === 'latency' && <span className="metric-source">{latencySourceName(directionSource)}</span>}
             </h3>
             {points.length === 0 ? (
               <div className="chart-empty">
@@ -474,13 +456,7 @@ export default function PairDetail({
               </div>
             ) : (
               <Chart
-                options={mkOptions(
-                  chart,
-                  axisLabel,
-                  withPctl,
-                  latestValueIndex(chartData),
-                  lossCeiling,
-                )}
+                options={mkOptions(chart, axisLabel, withPctl, latestValueIndex(chartData), lossCeiling)}
                 data={chartData}
               />
             )}

@@ -24,10 +24,7 @@ export default function MeshesPanel({
   useEffect(() => {
     let cancelled = false
     const load = () => {
-      Promise.all([
-        apiGet<MeshesConfigResponse>('/api/v1/config/meshes'),
-        apiGet<SitesResponse>('/api/v1/sites'),
-      ])
+      Promise.all([apiGet<MeshesConfigResponse>('/api/v1/config/meshes'), apiGet<SitesResponse>('/api/v1/sites')])
         .then(([meshes, sitesRes]) => {
           if (!cancelled) {
             setData(meshes)
@@ -49,8 +46,7 @@ export default function MeshesPanel({
     }
   }, [onAuthError])
 
-  const reload = () =>
-    apiGet<MeshesConfigResponse>('/api/v1/config/meshes').then(setData).catch(onAuthError)
+  const reload = () => apiGet<MeshesConfigResponse>('/api/v1/config/meshes').then(setData).catch(onAuthError)
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
@@ -67,29 +63,53 @@ export default function MeshesPanel({
   }
 
   if (error && !data) {
-    return <div className="state-panel state-error"><h2>Meshes unavailable</h2><p>{error}</p></div>
+    return (
+      <div className="state-panel state-error">
+        <h2>Meshes unavailable</h2>
+        <p>{error}</p>
+      </div>
+    )
   }
   if (!data) {
-    return <div className="state-panel" role="status"><span className="state-spinner" />Loading meshes…</div>
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading meshes…
+      </div>
+    )
   }
 
   const addable = (m: MeshConfig) => sites.filter((s) => !m.sites.includes(s))
 
   return (
     <>
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
       <section className="card settings-card config-card">
         <div className="card-head">
-          <div><span className="eyebrow">Full-mesh groups</span><h2>Mesh groups</h2></div>
+          <div>
+            <span className="eyebrow">Full-mesh groups</span>
+            <h2>Mesh groups</h2>
+          </div>
           <span className="hint">Refreshes every 30s</span>
         </div>
         <p className="section-intro">
-          Each mesh probe template expands over every ordered pair of member sites. Removing a member
-          or deleting a mesh also retires the affected series and closes their open incidents.
+          Each mesh probe template expands over every ordered pair of member sites. Removing a member or deleting a mesh
+          also retires the affected series and closes their open incidents.
         </p>
-        {actionError && <ul className="error threshold-errors"><li>{actionError}</li></ul>}
+        {actionError && (
+          <ul className="error threshold-errors">
+            <li>{actionError}</li>
+          </ul>
+        )}
         {data.meshes.length === 0 ? (
-          <div className="empty-state"><strong>No mesh groups</strong><span>Create one to run the same probes between every pair of member sites.</span></div>
+          <div className="empty-state">
+            <strong>No mesh groups</strong>
+            <span>Create one to run the same probes between every pair of member sites.</span>
+          </div>
         ) : (
           <ul className="mesh-list">
             {data.meshes.map((m) => (
@@ -122,8 +142,10 @@ export default function MeshesPanel({
                           onConfirm={() =>
                             run(() =>
                               apiDelete(
-                                '/api/v1/config/meshes/' + encodeURIComponent(m.name) +
-                                '/members/' + encodeURIComponent(s),
+                                '/api/v1/config/meshes/' +
+                                  encodeURIComponent(m.name) +
+                                  '/members/' +
+                                  encodeURIComponent(s),
                               ),
                             )
                           }
@@ -141,7 +163,11 @@ export default function MeshesPanel({
                           onChange={(e) => setMemberPick((p) => ({ ...p, [m.id]: e.target.value }))}
                         >
                           <option value="">add site…</option>
-                          {addable(m).map((s) => <option key={s} value={s}>{s}</option>)}
+                          {addable(m).map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
                         </select>
                       </label>
                       <button
@@ -151,8 +177,10 @@ export default function MeshesPanel({
                         onClick={() =>
                           run(() =>
                             apiPost(
-                              '/api/v1/config/meshes/' + encodeURIComponent(m.name) +
-                              '/members/' + encodeURIComponent(memberPick[m.id]),
+                              '/api/v1/config/meshes/' +
+                                encodeURIComponent(m.name) +
+                                '/members/' +
+                                encodeURIComponent(memberPick[m.id]),
                             ),
                           ).then(() => setMemberPick((p) => ({ ...p, [m.id]: '' })))
                         }
@@ -189,9 +217,7 @@ export default function MeshesPanel({
                 className="primary"
                 disabled={busy || newName.trim() === ''}
                 onClick={() =>
-                  run(() => apiPost('/api/v1/config/meshes', { name: newName.trim() })).then(() =>
-                    setNewName(''),
-                  )
+                  run(() => apiPost('/api/v1/config/meshes', { name: newName.trim() })).then(() => setNewName(''))
                 }
               >
                 Create

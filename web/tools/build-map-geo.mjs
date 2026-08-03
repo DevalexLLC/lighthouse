@@ -40,8 +40,7 @@ function naturalEarth1Raw(lambda, phi) {
   const phi2 = phi * phi
   const phi4 = phi2 * phi2
   return [
-    lambda *
-      (0.8707 - 0.131979 * phi2 + phi4 * (-0.013791 + phi4 * (0.003971 * phi2 - 0.001529 * phi4))),
+    lambda * (0.8707 - 0.131979 * phi2 + phi4 * (-0.013791 + phi4 * (0.003971 * phi2 - 0.001529 * phi4))),
     phi * (1.007226 + phi2 * (0.015085 + phi4 * (-0.044475 + 0.028874 * phi2 - 0.005916 * phi4))),
   ]
 }
@@ -106,7 +105,7 @@ const arcs = topo.arcs.map((arc) => {
 function ringLonLat(arcIndexes) {
   const pts = []
   for (const idx of arcIndexes) {
-    let a = idx < 0 ? arcs[~idx].slice().reverse() : arcs[idx]
+    let a = idx < 0 ? arcs[~idx].toReversed() : arcs[idx]
     if (pts.length > 0) a = a.slice(1) // consecutive arcs share an endpoint
     pts.push(...a)
   }
@@ -135,34 +134,34 @@ function densifyEdges(pts) {
     const onPoleLine = Math.abs(a[1]) === 90 && a[1] === b[1] && Math.abs(b[0] - a[0]) > 3
     if (onMeridian) {
       const step = 2 * Math.sign(b[1] - a[1])
-      for (let lat = a[1] + step; Math.sign(b[1] - lat) === Math.sign(step); lat += step)
-        out.push([a[0], lat])
+      for (let lat = a[1] + step; Math.sign(b[1] - lat) === Math.sign(step); lat += step) out.push([a[0], lat])
     } else if (onPoleLine) {
       const step = 2 * Math.sign(b[0] - a[0])
-      for (let lon = a[0] + step; Math.sign(b[0] - lon) === Math.sign(step); lon += step)
-        out.push([lon, a[1]])
+      for (let lon = a[0] + step; Math.sign(b[0] - lon) === Math.sign(step); lon += step) out.push([lon, a[1]])
     }
+  }
+  return out
+}
+
+// One Sutherland–Hodgman half-plane pass over a lon/lat ring.
+function clipHalf(ring, inside, boundary) {
+  const out = []
+  for (let i = 0; i < ring.length; i++) {
+    const cur = ring[i]
+    const prev = ring[(i + ring.length - 1) % ring.length]
+    const curIn = inside(cur)
+    const prevIn = inside(prev)
+    if (curIn !== prevIn) {
+      const t = (boundary - prev[0]) / (cur[0] - prev[0])
+      out.push([boundary, prev[1] + t * (cur[1] - prev[1])])
+    }
+    if (curIn) out.push(cur)
   }
   return out
 }
 
 // Sutherland–Hodgman clip of a lon/lat ring against lon ∈ [−180, 180].
 function clipBand(pts) {
-  const clipHalf = (input, inside, boundary) => {
-    const out = []
-    for (let i = 0; i < input.length; i++) {
-      const cur = input[i]
-      const prev = input[(i + input.length - 1) % input.length]
-      const curIn = inside(cur)
-      const prevIn = inside(prev)
-      if (curIn !== prevIn) {
-        const t = (boundary - prev[0]) / (cur[0] - prev[0])
-        out.push([boundary, prev[1] + t * (cur[1] - prev[1])])
-      }
-      if (curIn) out.push(cur)
-    }
-    return out
-  }
   let r = clipHalf(pts, (p) => p[0] >= -180, -180)
   if (r.length >= 3) r = clipHalf(r, (p) => p[0] <= 180, 180)
   return r.length >= 3 ? r : null
@@ -201,15 +200,7 @@ function cutAntimeridian(ring) {
     const span = 360 - Math.abs(tail[0] - tailEdge) - Math.abs(head[0] - headEdge)
     const t = span === 0 ? 0.5 : Math.abs(tail[0] - tailEdge) / span
     const seamLat = tail[1] + t * (head[1] - tail[1])
-    return [
-      densifyEdges([
-        ...r,
-        [tailEdge, seamLat],
-        [tailEdge, poleLat],
-        [headEdge, poleLat],
-        [headEdge, seamLat],
-      ]),
-    ]
+    return [densifyEdges([...r, [tailEdge, seamLat], [tailEdge, poleLat], [headEdge, poleLat], [headEdge, seamLat]])]
   }
 
   // Plain crosser (Russia, Fiji, …): unwrap to a continuous lon range, then
@@ -272,8 +263,7 @@ const rings = [] // { pts: [[x,y],…], minX, maxX, minY, maxY }
 let ringCount = 0
 for (const geom of topo.objects.countries.geometries) {
   if (!geom) continue
-  const polys =
-    geom.type === 'Polygon' ? [geom.arcs] : geom.type === 'MultiPolygon' ? geom.arcs : []
+  const polys = geom.type === 'Polygon' ? [geom.arcs] : geom.type === 'MultiPolygon' ? geom.arcs : []
   for (const poly of polys) {
     for (const ring of poly) {
       for (const piece of cutAntimeridian(ringLonLat(ring))) {

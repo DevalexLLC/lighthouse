@@ -93,25 +93,41 @@ export default function Settings({
       ) : tab === 'probes' ? (
         <ProbesPanel isAdmin={isAdmin} onAuthError={onAuthError} />
       ) : error && !settings ? (
-        <div className="state-panel state-error"><h2>Settings unavailable</h2><p>{error}</p></div>
+        <div className="state-panel state-error">
+          <h2>Settings unavailable</h2>
+          <p>{error}</p>
+        </div>
       ) : !settings ? (
-        <div className="state-panel" role="status"><span className="state-spinner" />Loading settings…</div>
+        <div className="state-panel" role="status">
+          <span className="state-spinner" />
+          Loading settings…
+        </div>
       ) : (
         <>
-        {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
-        <section className="card settings-card">
-          <div className="card-head">
-            <div><span className="eyebrow">Health classification</span><h2>Connectivity thresholds</h2></div>
-          </div>
-          <p className="section-intro">Values at or above the degraded threshold require attention. Critical thresholds remain a stronger visual signal inside detailed connectivity views.</p>
-          <ThresholdSettingsPanel
-            settings={settings}
-            isAdmin={isAdmin}
-            onSaved={setSettings}
-            onAuthError={onAuthError}
-            variant="page"
-          />
-        </section>
+          {error && (
+            <div className="inline-alert" role="status">
+              Refresh failed. Showing the last successful snapshot.
+            </div>
+          )}
+          <section className="card settings-card">
+            <div className="card-head">
+              <div>
+                <span className="eyebrow">Health classification</span>
+                <h2>Connectivity thresholds</h2>
+              </div>
+            </div>
+            <p className="section-intro">
+              Values at or above the degraded threshold require attention. Critical thresholds remain a stronger visual
+              signal inside detailed connectivity views.
+            </p>
+            <ThresholdSettingsPanel
+              settings={settings}
+              isAdmin={isAdmin}
+              onSaved={setSettings}
+              onAuthError={onAuthError}
+              variant="page"
+            />
+          </section>
         </>
       )}
     </>
