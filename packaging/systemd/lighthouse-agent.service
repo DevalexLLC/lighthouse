@@ -1,5 +1,9 @@
-# Lighthouse site agent. M4 ships the capability-correct unit; the fully
-# hardened unit (ProtectSystem=strict etc.) and the RPM land in M6.
+# Lighthouse site agent — hardened unit (M6). The sandbox below is tuned to
+# exactly what the agent does: ICMP/TCP/TLS/HTTP/DNS probing, one writable
+# state directory, nothing else. ExecStartPre selfcheck doubles as the
+# sandbox validator — if a directive here breaks socket creation, the unit
+# refuses to start with the failing capability named instead of probing
+# half-blind.
 [Unit]
 Description=Lighthouse site agent
 Documentation=https://github.com/devalexllc/lighthouse
@@ -9,12 +13,19 @@ Wants=network-online.target
 [Service]
 User=lighthouse
 Group=lighthouse
-# /var/lib/lighthouse-agent, owned by the service user.
+# /var/lib/lighthouse-agent (state_dir: spool + pki), owned by the service
+# user. With ProtectSystem=strict this is the ONLY writable path.
 StateDirectory=lighthouse-agent
+# /etc/lighthouse, created if missing; read-only to the service.
+ConfigurationDirectory=lighthouse
 # Fail loud before starting: a misconfigured install (no ICMP capability,
-# unwritable spool, bad YAML) blocks here with every problem named.
+# unwritable spool, expired certificate, leaked key mode, bad YAML) blocks
+# here with every problem named.
 ExecStartPre=/usr/bin/lighthouse-agent selfcheck --config /etc/lighthouse/agent.yaml
 ExecStart=/usr/bin/lighthouse-agent run --config /etc/lighthouse/agent.yaml
+Restart=on-failure
+RestartSec=5
+
 # Raw ICMP for the traceroute prober and the echo prober's fallback path.
 # Alternative for echo-only deployments: net.ipv4.ping_group_range covering
 # the lighthouse group enables unprivileged datagram ICMP (see README.md),
@@ -22,8 +33,37 @@ ExecStart=/usr/bin/lighthouse-agent run --config /etc/lighthouse/agent.yaml
 AmbientCapabilities=CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true
-Restart=on-failure
-RestartSec=5
+
+# Filesystem: everything read-only except the state directory; no /home, no
+# /tmp sharing, no device nodes beyond the API set.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+UMask=0077
+
+# Kernel and process-info exposure.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+
+# AF_INET/AF_INET6: raw+datagram ICMP and TCP/TLS/HTTP/DNS probes.
+# AF_NETLINK: the Go runtime enumerates interfaces/addresses via rtnetlink
+# on resolver and dial paths. AF_UNIX: journald/sd-notify plumbing.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+# Safe for pure Go (no JIT, no cgo).
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
