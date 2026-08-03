@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "unicorn", "oxc", "import", "jsx-a11y"],
+  "env": { "browser": true, "es2022": true },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    // Not part of any category, so it must be named explicitly.
+    "react/rules-of-hooks": "error",
+    // tsconfig sets "jsx": "react-jsx" (the automatic runtime), so JSX never
+    // expands to React.createElement and React need not be in scope.
+    "react/react-in-jsx-scope": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tools/**/*.mjs"],
+      "env": { "browser": false, "node": true }
+    }
+  ],
+  "ignorePatterns": ["dist", "node_modules", "src/assets/mapGeo.ts"]
+}
