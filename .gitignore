@@ -21,3 +21,4 @@ web/tsconfig.tsbuildinfo
 
 # Local screenshots (conversation attachments, never project files)
 /Screenshot*.png
+/dist/

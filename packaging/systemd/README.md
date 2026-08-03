@@ -24,6 +24,11 @@ runs outside the unit (an operator command), so the sandbox does not apply
 to it — but the service only reads what enrollment wrote, so ownership must
 match the service user (hence `sudo -u lighthouse` above).
 
+Run manual `selfcheck` invocations as the service user too
+(`sudo -u lighthouse lighthouse-agent selfcheck …`): the spool check
+creates `<state_dir>/spool` if missing, and a root-owned spool directory
+would break the service's first start.
+
 ## Sandbox
 
 `ProtectSystem=strict` plus `StateDirectory` means the only writable path is

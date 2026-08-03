@@ -16,7 +16,12 @@ COMPOSE_DEV  = deploy/compose-dev/docker-compose.dev.yml
 # alone silently removes overlay services (fake agents, their enrollment state).
 COMPOSE      = docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_DEV)
 
-.PHONY: all build server agent test lint vet proto web vendor up down reset logs ps seed clean
+# RPM naming: Version cannot contain '-', so the git describe output is
+# sanitized (strip leading v, '-' → '.').
+RPM_VERSION = $(shell echo '$(VERSION)' | sed 's/^v//; s/-/./g')
+RPM_ARCHS  ?= x86_64 aarch64
+
+.PHONY: all build server agent test lint vet proto web vendor up down reset logs ps seed clean rpm
 
 all: build
 
@@ -27,6 +32,39 @@ server:
 
 agent:
 	$(GOBUILD) -o bin/lighthouse-agent ./cmd/lighthouse-agent
+
+# Cross-compiled agent binaries for packaging (static, CGO off already).
+agent-linux-%:
+	GOOS=linux GOARCH=$* $(GOBUILD) -o bin/lighthouse-agent-linux-$* ./cmd/lighthouse-agent
+
+# Agent RPMs for RHEL-family hosts. Packages the pre-built binary — no
+# compilation inside rpmbuild, so this stays offline. On dev boxes without
+# rpmbuild, compile on the host and run only the rpmbuild step in a
+# container (Go is not needed inside):
+#   make agent-linux-amd64
+#   docker run --rm -v $$PWD:/src -w /src rockylinux:9 sh -c \
+#     'dnf install -y -q rpm-build systemd-rpm-macros make && \
+#      make rpm-build RPM_TARGET=x86_64 RPM_BINARY=bin/lighthouse-agent-linux-amd64'
+rpm: $(RPM_ARCHS:%=rpm-arch-%)
+
+rpm-arch-x86_64: agent-linux-amd64
+	$(MAKE) rpm-build RPM_TARGET=x86_64 RPM_BINARY=bin/lighthouse-agent-linux-amd64
+
+rpm-arch-aarch64: agent-linux-arm64
+	$(MAKE) rpm-build RPM_TARGET=aarch64 RPM_BINARY=bin/lighthouse-agent-linux-arm64
+
+# Internal: stage sources and invoke rpmbuild for one arch.
+rpm-build:
+	rm -rf dist/rpm/SOURCES-$(RPM_TARGET)
+	mkdir -p dist/rpm/SOURCES-$(RPM_TARGET)
+	cp $(RPM_BINARY) dist/rpm/SOURCES-$(RPM_TARGET)/lighthouse-agent
+	cp packaging/systemd/lighthouse-agent.service packaging/rpm/agent.yaml LICENSE dist/rpm/SOURCES-$(RPM_TARGET)/
+	rpmbuild -bb packaging/rpm/lighthouse-agent.spec \
+		--target $(RPM_TARGET) \
+		--define "lh_version $(RPM_VERSION)" \
+		--define "lh_release 1" \
+		--define "_topdir $(CURDIR)/dist/rpm" \
+		--define "_sourcedir $(CURDIR)/dist/rpm/SOURCES-$(RPM_TARGET)"
 
 test:
 	CGO_ENABLED=0 $(GO) test -mod=vendor ./...
