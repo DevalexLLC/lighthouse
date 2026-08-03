@@ -59,6 +59,53 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- M6 (packaging, rotation, air-gap hardening + ghcr publishing) — done.
+  Agent cert renewal: the renewer (`internal/agent/uplink/renew.go`) fires
+  at 2/3 of the LEAF's validity (no agent config knob — it can't disagree
+  with what was issued), reuses the existing private key (commit = one
+  atomic rename of agent.crt; response parsed + key-matched before commit),
+  then recycles the gRPC conn so the new cert is presented immediately
+  (ClientTLS also moved to GetClientCertificate reading disk per
+  handshake). Failure retry = min(24h, max(30s, validity/20)). Server:
+  `ca.agent_cert_lifetime`/`ca.server_cert_lifetime` config keys (defaults
+  unchanged 30d/90d; <24h agent lifetime logs a TEST MODE banner; e2e
+  switch is a commented 10m line in server.dev.yaml — enable + `make
+  reset`), and the gRPC listener cert now rotates in-process via a
+  GetCertificate provider + periodic needsReissue check (startup-only
+  reissue would serve an expired cert once uptime exceeded lifetime).
+  selfcheck gained identity (expired=fatal→re-enroll, final-third=warn
+  renewal failing) and key-mode (non-0600=fatal) checks; run manual
+  selfchecks AS THE SERVICE USER — it creates spool/ and a root-owned one
+  bricks first start. Packaging: hardened unit (ProtectSystem=strict etc.,
+  AF_NETLINK kept — Go runtime uses rtnetlink), classic rpmbuild spec
+  `packaging/rpm/` packaging a PRE-BUILT binary (no compile inside
+  rpmbuild; `make rpm`, container recipe in Makefile; verified in
+  rockylinux:9 incl. unprivileged-ICMP via ping_group_range). Images:
+  server/agent/proxy Dockerfiles are multi-arch (cross-compile via
+  $BUILDPLATFORM, no QEMU for Go), non-root uid 10001, VERSION/COMMIT
+  build-args stamp internal/version, OCI labels; the agent Dockerfile's
+  DEFAULT target is `dev` (stage-order necessity) — always name the
+  target (release for prod); the proxy image bakes
+  deploy/proxy/nginx.conf.template (envsubst of LIGHTHOUSE_GRPC_SNI only —
+  nginx runtime $vars survive). Compose base now points at
+  ghcr.io/devalexllc/* images (env.example documents
+  DB_PASSWORD/VERSION/GRPC_SNI); dev overlay builds :dev tags incl. the
+  proxy, bootstrap runs as user 0 (tokens volume is root-owned), certgen
+  chowns the dev TLS key to 10001 — pre-existing dev stacks need one
+  `make reset` for volume ownership. `.dockerignore` exists and must
+  NEVER exclude vendor//internal/pb//web/dist. Release: `make images` /
+  `make rpm` / `make bundle` (deploy/release/build-bundle.sh, one
+  docker-load tar of all four images + compose + docs + RPMs +
+  SHA256SUMS, refuses overwrite); CI `.github/workflows/ci.yml` enforces
+  the offline build (GOPROXY=off GOTOOLCHAIN=local + git diff
+  --exit-code; NO proto-drift gate — buf is not vendored/pinned) and
+  builds all three images on PRs; `release.yml` on v* tags pushes
+  multi-arch images to ghcr (tag+latest), builds per-arch RPMs, and
+  attaches per-arch bundles to a GitHub release. Revocation still has no
+  CLI (DB update; documented in docs/install.md). New docs:
+  docs/install.md (offline install/upgrade/cert lifecycle),
+  docs/airgap-build.md (what enforces zero-network + version flow).
+
 - Probe-workload management moved into the web UI (2026-08-03): Settings is
   now a tabbed page (Thresholds / Targets / Meshes / Probes, hash
   `#/settings/<tab>`, plain `#/settings` = thresholds; still reached only
@@ -322,7 +369,8 @@ Full design + milestone plan: `docs/architecture.md`.
   percentiles present); 24h raw with percentile keys absent;
   matrix/outages regression-clean (tcp `conn_refused` cells + 6 open
   `probe_failing` are the dev mesh's intentional port-9 TCP probe).
-- Next: M6+ — see the milestone table in `docs/architecture.md`.
+- Next: post-M6 follow-ups worth tracking: revocation CLI, vendored+pinned
+  buf for a CI proto-drift gate, `:edge` image tags on main.
 
 ### M2 notes worth knowing
 

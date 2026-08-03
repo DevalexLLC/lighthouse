@@ -33,8 +33,10 @@ directions for every site pair** — over 7/30/90/365-day windows.
 - **Air-gap friendly.** The repository vendors everything a build needs: Go
   dependencies (`vendor/`), generated protobuf code (`internal/pb/`), and the
   built dashboard (`web/dist/`). `go build -mod=vendor` with no network is the
-  supported build. The control plane ships as container image tarballs plus a
-  compose file; the agent is a single static Go binary (RPM for RHEL).
+  supported build. Releases publish images to `ghcr.io/devalexllc` and attach
+  an offline install bundle (image tarballs + compose file + docs) per
+  architecture; the agent is a single static Go binary (RPM for RHEL, or the
+  published container). See `docs/install.md` and `docs/airgap-build.md`.
 - **Fail loud.** Unknown config keys are fatal. Missing hard dependencies fail
   preflight at startup with the problem named. No silent no-ops.
 

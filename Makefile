@@ -98,7 +98,9 @@ images:
 bundle:
 	deploy/release/build-bundle.sh $(VERSION) $(BUNDLE_ARCH)
 
-BUNDLE_ARCH ?= amd64
+# Default to the Docker host's architecture: `make images` builds native
+# images, so a hardcoded amd64 would mislabel bundles built on arm64.
+BUNDLE_ARCH ?= $(shell docker version --format '{{.Server.Arch}}' 2>/dev/null || echo amd64)
 
 # ---- dev-time regeneration (network/tooling allowed; outputs are committed) ----
 
