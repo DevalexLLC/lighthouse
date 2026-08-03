@@ -54,6 +54,9 @@ func (p PKI) Enrolled() bool {
 	return err == nil
 }
 
+// KeyPath returns the private-key location (selfcheck audits its mode).
+func (p PKI) KeyPath() string { return filepath.Join(p.Dir, keyFile) }
+
 // Options controls a single enrollment.
 type Options struct {
 	Token string

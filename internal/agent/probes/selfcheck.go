@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/net/icmp"
+
+	"github.com/devalexllc/lighthouse/internal/agent/enroll"
 )
 
 // Check is one selfcheck result. Fatal checks must pass for the agent to be
@@ -62,8 +65,70 @@ func SelfCheck(stateDir string) []Check {
 		})
 	}
 
+	checks = append(checks, identityChecks(stateDir, time.Now())...)
 	checks = append(checks, spoolCheck(stateDir))
 	return checks
+}
+
+// identityChecks reports PKI state. Not being enrolled is OK-informational:
+// the systemd unit runs selfcheck via ExecStartPre, and a fresh RPM install
+// must be able to reach its first `enroll` without the unit refusing to
+// explain itself.
+func identityChecks(stateDir string, now time.Time) []Check {
+	pki := enroll.NewPKI(stateDir)
+	if !pki.Enrolled() {
+		return []Check{{
+			Name: "identity", OK: true,
+			Detail: "not enrolled yet — run `lighthouse-agent enroll` with a join token",
+		}}
+	}
+
+	var checks []Check
+	leaf, err := pki.Leaf()
+	switch {
+	case err != nil:
+		checks = append(checks, Check{
+			Name: "identity", Fatal: true,
+			Detail: fmt.Sprintf("%v — re-enroll with a fresh token", err),
+		})
+	case now.After(leaf.NotAfter):
+		checks = append(checks, Check{
+			Name: "identity", Fatal: true,
+			Detail: fmt.Sprintf("certificate expired %s — the server rejects expired certificates; re-enroll with a fresh token",
+				leaf.NotAfter.Format(time.RFC3339)),
+		})
+	case leaf.NotAfter.Sub(now) < leaf.NotAfter.Sub(leaf.NotBefore)/3:
+		// The renewer fires at 2/3 of validity; being inside the final
+		// third means renewal has been failing since then.
+		checks = append(checks, Check{
+			Name: "identity", OK: false, Fatal: false,
+			Detail: fmt.Sprintf("certificate expires %s and renewal appears to be failing — check connectivity to the control plane",
+				leaf.NotAfter.Format(time.RFC3339)),
+		})
+	default:
+		checks = append(checks, Check{
+			Name: "identity", OK: true,
+			Detail: fmt.Sprintf("certificate valid until %s (%dd remaining)",
+				leaf.NotAfter.Format(time.RFC3339), int(leaf.NotAfter.Sub(now).Hours()/24)),
+		})
+	}
+
+	// A group- or world-readable private key is a leaked identity: any
+	// local user could impersonate this agent. Fail loudly rather than
+	// carry on with a compromised credential.
+	perm := Check{Name: "pki permissions", Fatal: true}
+	fi, err := os.Stat(pki.KeyPath())
+	switch {
+	case err != nil:
+		perm.Detail = fmt.Sprintf("cannot stat %s: %v — re-enroll with a fresh token", pki.KeyPath(), err)
+	case fi.Mode().Perm()&0o077 != 0:
+		perm.Detail = fmt.Sprintf("%s is mode %o — must be readable only by the service user (chmod 600)",
+			pki.KeyPath(), fi.Mode().Perm())
+	default:
+		perm.OK = true
+		perm.Detail = fmt.Sprintf("%s is mode %o", pki.KeyPath(), fi.Mode().Perm())
+	}
+	return append(checks, perm)
 }
 
 func trySocket(network string) error {
