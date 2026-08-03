@@ -92,6 +92,14 @@ images:
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
 		-t $(REGISTRY)/lighthouse-proxy:$(VERSION) .
 
+# Air-gap install bundle (images tar + compose + docs + RPMs if built).
+# Uses local images when present; run `make images` (and optionally
+# `make rpm`) first for a fully-local build.
+bundle:
+	deploy/release/build-bundle.sh $(VERSION) $(BUNDLE_ARCH)
+
+BUNDLE_ARCH ?= amd64
+
 # ---- dev-time regeneration (network/tooling allowed; outputs are committed) ----
 
 proto:
