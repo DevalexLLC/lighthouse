@@ -99,6 +99,11 @@ func loadConfig(fs *flag.FlagSet, args []string) (config.Config, error) {
 	return config.Load(*cfgPath)
 }
 
+// caLifetimes maps the validated config onto the CA's lifetime overrides.
+func caLifetimes(cfg config.Config) ca.Lifetimes {
+	return ca.Lifetimes{Agent: cfg.CA.AgentCertLifetime, Server: cfg.CA.ServerCertLifetime}
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	cfg, err := loadConfig(fs, args)
@@ -147,7 +152,7 @@ func cmdCA(args []string) error {
 	if err := ca.Init(cfg.CA.Dir, *ifMissing); err != nil {
 		return err
 	}
-	authority, err := ca.Load(cfg.CA.Dir)
+	authority, err := ca.Load(cfg.CA.Dir, caLifetimes(cfg))
 	if err != nil {
 		return err
 	}
@@ -178,7 +183,7 @@ func cmdToken(args []string) error {
 		return err
 	}
 	defer st.Close()
-	authority, err := ca.Load(cfg.CA.Dir)
+	authority, err := ca.Load(cfg.CA.Dir, caLifetimes(cfg))
 	if err != nil {
 		return err
 	}

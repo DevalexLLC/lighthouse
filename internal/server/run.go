@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -31,9 +33,13 @@ import (
 // Run performs preflight and serves until ctx is cancelled. Every preflight
 // failure is fatal and names the problem.
 func Run(ctx context.Context, cfg config.Config) error {
-	authority, err := ca.Load(cfg.CA.Dir)
+	authority, err := ca.Load(cfg.CA.Dir, ca.Lifetimes{Agent: cfg.CA.AgentCertLifetime, Server: cfg.CA.ServerCertLifetime})
 	if err != nil {
 		return fmt.Errorf("preflight: %w", err)
+	}
+	if cfg.CA.AgentCertLifetime < 24*time.Hour {
+		slog.Warn("TEST MODE: ca.agent_cert_lifetime is shorter than 24h — agent certificates will churn rapidly; never run production this way",
+			"agent_cert_lifetime", cfg.CA.AgentCertLifetime)
 	}
 
 	st, err := store.Connect(ctx, cfg.DB.URL, cfg.DB.ConnectTimeout)
@@ -68,10 +74,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("preflight: dashboard certificate (tls.cert_file/tls.key_file): %w", err)
 	}
 
-	grpcCert, err := ensureGRPCCert(authority, cfg.CA.Dir, cfg.Listen.GRPCHostname)
+	grpcCert, err := ensureGRPCCert(authority, cfg.CA.Dir, cfg.Listen.GRPCHostname, cfg.CA.ServerCertLifetime)
 	if err != nil {
 		return fmt.Errorf("preflight: %w", err)
 	}
+	certProvider := &grpcCertProvider{cert: grpcCert}
+	// Reissue on a timer too: startup-only rotation would let a server whose
+	// uptime exceeds the cert lifetime serve an expired certificate.
+	go certProvider.rotate(ctx, authority, cfg.CA.Dir, cfg.Listen.GRPCHostname, cfg.CA.ServerCertLifetime)
 
 	api := grpcapi.New(st, authority)
 
@@ -80,8 +90,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 	go outage.Sweep(ctx, st.Pool(), outage.SweepConfig{})
 
 	grpcTLS := &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		Certificates: []tls.Certificate{grpcCert},
+		MinVersion:     tls.VersionTLS12,
+		GetCertificate: certProvider.get,
 		// Enrollment arrives with no client certificate; AgentService RPCs
 		// enforce a verified cert themselves. Certs that ARE presented get
 		// verified against the built-in CA here.
@@ -157,26 +167,24 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 }
 
-// ensureGRPCCert loads the auto-issued gRPC server certificate, reissuing it
-// when missing, hostname-mismatched, or past 2/3 of its lifetime.
-func ensureGRPCCert(authority *ca.CA, dir, hostname string) (tls.Certificate, error) {
+// needsReissue decides whether the auto-issued gRPC server certificate must
+// be replaced: unreadable leaf, hostname mismatch, less than 1/3 of lifetime
+// remaining, or a chain without the CA (fingerprint-pinned enrollment needs
+// the CA served in the handshake).
+func needsReissue(leaf *x509.Certificate, chainLen int, hostname string, now time.Time, lifetime time.Duration) bool {
+	if lifetime <= 0 {
+		lifetime = ca.ServerCertLifetime
+	}
+	return leaf == nil ||
+		leaf.VerifyHostname(hostname) != nil ||
+		leaf.NotAfter.Sub(now) <= lifetime/3 ||
+		chainLen < 2
+}
+
+// issueGRPCCert issues a fresh gRPC server certificate and persists it.
+func issueGRPCCert(authority *ca.CA, dir, hostname string) (tls.Certificate, error) {
 	certPath := filepath.Join(dir, "grpc-server.crt")
 	keyPath := filepath.Join(dir, "grpc-server.key")
-
-	if cert, err := tls.LoadX509KeyPair(certPath, keyPath); err == nil {
-		leaf := cert.Leaf
-		if leaf != nil &&
-			leaf.VerifyHostname(hostname) == nil &&
-			time.Until(leaf.NotAfter) > ca.ServerCertLifetime/3 &&
-			// Fingerprint-pinned enrollment needs the CA served in the
-			// chain; reissue files from before that was included.
-			len(cert.Certificate) >= 2 {
-			return cert, nil
-		}
-		slog.Info("reissuing gRPC server certificate",
-			"reason", "expiring, hostname change, missing CA in chain, or unreadable leaf")
-	}
-
 	certPEM, keyPEM, err := authority.IssueServerCert(hostname)
 	if err != nil {
 		return tls.Certificate{}, err
@@ -189,4 +197,67 @@ func ensureGRPCCert(authority *ca.CA, dir, hostname string) (tls.Certificate, er
 	}
 	slog.Info("issued gRPC server certificate", "hostname", hostname)
 	return tls.LoadX509KeyPair(certPath, keyPath)
+}
+
+// ensureGRPCCert loads the auto-issued gRPC server certificate, reissuing it
+// when missing, hostname-mismatched, or past 2/3 of its lifetime.
+func ensureGRPCCert(authority *ca.CA, dir, hostname string, lifetime time.Duration) (tls.Certificate, error) {
+	certPath := filepath.Join(dir, "grpc-server.crt")
+	keyPath := filepath.Join(dir, "grpc-server.key")
+	if cert, err := tls.LoadX509KeyPair(certPath, keyPath); err == nil {
+		if !needsReissue(cert.Leaf, len(cert.Certificate), hostname, time.Now(), lifetime) {
+			return cert, nil
+		}
+		slog.Info("reissuing gRPC server certificate",
+			"reason", "expiring, hostname change, missing CA in chain, or unreadable leaf")
+	}
+	return issueGRPCCert(authority, dir, hostname)
+}
+
+// grpcCertProvider hands the current gRPC server certificate to handshakes
+// and swaps it when the rotation loop reissues.
+type grpcCertProvider struct {
+	mu   sync.RWMutex
+	cert tls.Certificate
+}
+
+func (p *grpcCertProvider) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return &p.cert, nil
+}
+
+// rotate rechecks the served certificate periodically and reissues in place.
+// A failed reissue is logged loudly and the old certificate keeps serving —
+// existing connections are unaffected either way; only new handshakes see
+// the swap.
+func (p *grpcCertProvider) rotate(ctx context.Context, authority *ca.CA, dir, hostname string, lifetime time.Duration) {
+	if lifetime <= 0 {
+		lifetime = ca.ServerCertLifetime
+	}
+	interval := min(time.Hour, lifetime/12)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		p.mu.RLock()
+		cur := p.cert
+		p.mu.RUnlock()
+		if !needsReissue(cur.Leaf, len(cur.Certificate), hostname, time.Now(), lifetime) {
+			continue
+		}
+		cert, err := issueGRPCCert(authority, dir, hostname)
+		if err != nil {
+			slog.Error("gRPC server certificate reissue failed; continuing with the current certificate", "error", err)
+			continue
+		}
+		p.mu.Lock()
+		p.cert = cert
+		p.mu.Unlock()
+		slog.Info("rotated gRPC server certificate", "hostname", hostname, "not_after", cert.Leaf.NotAfter)
+	}
 }

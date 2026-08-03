@@ -5,8 +5,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/pem"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -17,7 +19,7 @@ func initAndLoad(t *testing.T) *CA {
 	if err := Init(dir, false); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Load(dir)
+	c, err := Load(dir, Lifetimes{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,7 @@ func TestInitRefusesOverwrite(t *testing.T) {
 }
 
 func TestLoadMissingNamesRemedy(t *testing.T) {
-	_, err := Load(t.TempDir())
+	_, err := Load(t.TempDir(), Lifetimes{})
 	if err == nil || !strings.Contains(err.Error(), "ca init") {
 		t.Fatalf("missing CA error should name the remedy: %v", err)
 	}
@@ -135,5 +137,61 @@ func TestIssueServerCert(t *testing.T) {
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}); err != nil {
 		t.Fatalf("server cert does not verify: %v", err)
+	}
+}
+
+func TestLifetimeOverrides(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(dir, Lifetimes{Agent: 10 * time.Minute, Server: 2 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, _, _, err := c.SignAgentCSR(csrDER, uuid.New(), "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// NotBefore is backdated 5 minutes; validity = backdate + lifetime.
+	if got := cert.NotAfter.Sub(cert.NotBefore); got != 15*time.Minute {
+		t.Errorf("agent validity = %v, want 15m (5m backdate + 10m lifetime)", got)
+	}
+
+	certPEM, _, err := c.IssueServerCert("grpc.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(certPEM)
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := leaf.NotAfter.Sub(leaf.NotBefore); got != 2*time.Hour+5*time.Minute {
+		t.Errorf("server validity = %v, want 2h5m", got)
+	}
+}
+
+func TestZeroLifetimesFallBackToDefaults(t *testing.T) {
+	c := initAndLoad(t) // Load with Lifetimes{}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	csrDER, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	der, _, _, err := c.SignAgentCSR(csrDER, uuid.New(), "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, _ := x509.ParseCertificate(der)
+	if got := cert.NotAfter.Sub(cert.NotBefore); got != AgentCertLifetime+5*time.Minute {
+		t.Errorf("agent validity = %v, want default %v + 5m backdate", got, AgentCertLifetime)
 	}
 }

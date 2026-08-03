@@ -10,5 +10,8 @@ tls:
   key_file: /etc/lighthouse/tls/server.key
 ca:
   dir: /var/lib/lighthouse-server/ca
+  # Cert-rotation e2e switch: uncomment, then `make reset && make up` so the
+  # fleet enrolls with 10-minute certs (renewal fires ~5 min in).
+  # agent_cert_lifetime: 10m
 log:
   level: debug

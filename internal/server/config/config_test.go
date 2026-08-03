@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const valid = `
@@ -65,5 +66,38 @@ func TestLoadBadLogLevel(t *testing.T) {
 	_, err := Load(write(t, valid+"log:\n  level: verbose\n"))
 	if err == nil || !strings.Contains(err.Error(), "verbose") {
 		t.Fatalf("bad log level not rejected with value named: %v", err)
+	}
+}
+
+func TestLoadCertLifetimes(t *testing.T) {
+	cfg, err := Load(write(t, valid))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CA.AgentCertLifetime != 30*24*time.Hour || cfg.CA.ServerCertLifetime != 90*24*time.Hour {
+		t.Fatalf("lifetime defaults not applied: %+v", cfg.CA)
+	}
+
+	cfg, err = Load(write(t, valid+"ca:\n  agent_cert_lifetime: 10m\n  server_cert_lifetime: 48h\n"))
+	if err != nil {
+		t.Fatalf("valid override rejected: %v", err)
+	}
+	if cfg.CA.AgentCertLifetime != 10*time.Minute || cfg.CA.ServerCertLifetime != 48*time.Hour {
+		t.Fatalf("overrides not applied: %+v", cfg.CA)
+	}
+	if cfg.CA.Dir == "" {
+		t.Fatalf("partial ca block clobbered the dir default")
+	}
+}
+
+func TestLoadCertLifetimeFloorsNamed(t *testing.T) {
+	_, err := Load(write(t, valid+"ca:\n  agent_cert_lifetime: 1s\n  server_cert_lifetime: 5m\n"))
+	if err == nil {
+		t.Fatal("sub-floor lifetimes accepted")
+	}
+	for _, want := range []string{"ca.agent_cert_lifetime", "ca.server_cert_lifetime"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not name %s: %v", want, err)
+		}
 	}
 }

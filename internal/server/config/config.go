@@ -50,6 +50,13 @@ type TLS struct {
 type CA struct {
 	// Dir holds the built-in CA key and certificate (created by `ca init`).
 	Dir string `yaml:"dir"`
+	// AgentCertLifetime is the validity of issued agent client certificates.
+	// Agents renew at 2/3 of the leaf's actual validity, so shortening this
+	// (e.g. 10m) is the cert-rotation test mode; serve warns loudly below 24h.
+	AgentCertLifetime time.Duration `yaml:"agent_cert_lifetime"`
+	// ServerCertLifetime is the validity of the auto-issued gRPC server
+	// certificate (reissued when less than 1/3 remains).
+	ServerCertLifetime time.Duration `yaml:"server_cert_lifetime"`
 }
 
 type Log struct {
@@ -61,7 +68,11 @@ func Defaults() Config {
 	return Config{
 		Listen: Listen{GRPC: ":8443", HTTP: ":8080"},
 		DB:     DB{ConnectTimeout: 10 * time.Second},
-		CA:     CA{Dir: "/var/lib/lighthouse-server/ca"},
+		CA: CA{
+			Dir:                "/var/lib/lighthouse-server/ca",
+			AgentCertLifetime:  30 * 24 * time.Hour,
+			ServerCertLifetime: 90 * 24 * time.Hour,
+		},
 		Log:    Log{Level: "info"},
 	}
 }
@@ -101,6 +112,14 @@ func (c Config) validate() error {
 	}
 	if c.CA.Dir == "" {
 		errs = append(errs, errors.New("ca.dir must not be empty"))
+	}
+	// Issued certs are backdated 5 minutes (clock skew); below these floors
+	// the renew-at-2/3 schedule degenerates into a renewal storm.
+	if c.CA.AgentCertLifetime < 5*time.Minute {
+		errs = append(errs, fmt.Errorf("ca.agent_cert_lifetime %s is below the 5m minimum", c.CA.AgentCertLifetime))
+	}
+	if c.CA.ServerCertLifetime < time.Hour {
+		errs = append(errs, fmt.Errorf("ca.server_cert_lifetime %s is below the 1h minimum", c.CA.ServerCertLifetime))
 	}
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":

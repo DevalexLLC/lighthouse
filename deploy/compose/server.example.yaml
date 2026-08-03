@@ -21,6 +21,12 @@ tls:
 ca:
   # Built-in CA for agent client certificates (created by `ca init`).
   dir: /var/lib/lighthouse-server/ca
+  # Issued-certificate lifetimes. Agents renew at 2/3 of the leaf's actual
+  # validity; the gRPC server certificate is reissued past 2/3. Shortening
+  # agent_cert_lifetime below 24h logs a TEST MODE warning — it exists for
+  # cert-rotation verification, never for production.
+  # agent_cert_lifetime: 720h
+  # server_cert_lifetime: 2160h
 
 log:
   level: info

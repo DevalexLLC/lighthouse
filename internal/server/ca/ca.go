@@ -33,13 +33,35 @@ const (
 	certFile = "ca.crt"
 
 	rootLifetime = 10 * 365 * 24 * time.Hour
-	// AgentCertLifetime is the issued client-certificate lifetime; agents
-	// renew at 2/3 of it. An agent dark for longer than this must re-enroll.
+	// AgentCertLifetime is the default issued client-certificate lifetime;
+	// agents renew at 2/3 of the leaf's actual validity. An agent dark for
+	// longer than the lifetime must re-enroll.
 	AgentCertLifetime = 30 * 24 * time.Hour
-	// ServerCertLifetime covers the auto-issued gRPC server certificate,
-	// reissued on startup when less than 1/3 remains.
+	// ServerCertLifetime is the default lifetime of the auto-issued gRPC
+	// server certificate, reissued when less than 1/3 remains.
 	ServerCertLifetime = 90 * 24 * time.Hour
 )
+
+// Lifetimes overrides the issued-certificate lifetimes. Zero values fall
+// back to the package defaults, so `Lifetimes{}` is always safe.
+type Lifetimes struct {
+	Agent  time.Duration
+	Server time.Duration
+}
+
+func (l Lifetimes) agent() time.Duration {
+	if l.Agent > 0 {
+		return l.Agent
+	}
+	return AgentCertLifetime
+}
+
+func (l Lifetimes) server() time.Duration {
+	if l.Server > 0 {
+		return l.Server
+	}
+	return ServerCertLifetime
+}
 
 // AgentURISAN returns the URI SAN encoding an agent identity.
 func AgentURISAN(agentID uuid.UUID) *url.URL {
@@ -62,8 +84,9 @@ func AgentIDFromCert(cert *x509.Certificate) (uuid.UUID, error) {
 }
 
 type CA struct {
-	key  *ecdsa.PrivateKey
-	cert *x509.Certificate
+	key       *ecdsa.PrivateKey
+	cert      *x509.Certificate
+	lifetimes Lifetimes
 }
 
 // Init creates a new CA in dir. It refuses to overwrite an existing CA;
@@ -115,7 +138,7 @@ func Init(dir string, ifMissing bool) error {
 
 // Load reads the CA from dir. A missing CA is a preflight failure with the
 // remedy named.
-func Load(dir string) (*CA, error) {
+func Load(dir string, lifetimes Lifetimes) (*CA, error) {
 	keyDER, err := readPEM(filepath.Join(dir, keyFile), "EC PRIVATE KEY")
 	if err != nil {
 		return nil, fmt.Errorf("CA not usable in %s (run `lighthouse-server ca init` first): %w", dir, err)
@@ -132,7 +155,7 @@ func Load(dir string) (*CA, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse CA certificate: %w", err)
 	}
-	return &CA{key: key, cert: cert}, nil
+	return &CA{key: key, cert: cert, lifetimes: lifetimes}, nil
 }
 
 // BundleDER returns the CA certificate in DER (what agents install as their
@@ -180,7 +203,7 @@ func (c *CA) SignAgentCSR(csrDER []byte, agentID uuid.UUID, hostname string) (de
 		return nil, nil, time.Time{}, err
 	}
 	now := time.Now()
-	notAfter = now.Add(AgentCertLifetime)
+	notAfter = now.Add(c.lifetimes.agent())
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: hostname, Organization: []string{"Lighthouse Agent"}},
@@ -216,7 +239,7 @@ func (c *CA) IssueServerCert(hostname string) (certPEM, keyPEM []byte, err error
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: hostname, Organization: []string{"Lighthouse Server"}},
 		NotBefore:    now.Add(-5 * time.Minute),
-		NotAfter:     now.Add(ServerCertLifetime),
+		NotAfter:     now.Add(c.lifetimes.server()),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:     []string{hostname},
