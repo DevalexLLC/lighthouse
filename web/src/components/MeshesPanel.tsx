@@ -78,7 +78,7 @@ export default function MeshesPanel({
   return (
     <>
       {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
-      <section className="card settings-card">
+      <section className="card settings-card config-card">
         <div className="card-head">
           <div><span className="eyebrow">Full-mesh groups</span><h2>Mesh groups</h2></div>
           <span className="hint">Refreshes every 30s</span>

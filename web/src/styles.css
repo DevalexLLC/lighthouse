@@ -2532,12 +2532,16 @@ td.fleet-uptime {
 
 /* ---- Probe-workload management (Settings tabs) ---- */
 
+/* No overflow here: the links' -1px bottom margin (which overlays the nav
+   border with the active underline) makes the content 1px taller than the
+   box, and any overflow:auto turns that into a phantom scrollbar. Narrow
+   screens wrap instead of scrolling. */
 .settings-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   margin: -0.5rem 0 1.25rem;
   border-bottom: 1px solid var(--border);
-  overflow-x: auto;
 }
 
 .settings-tabs a {
@@ -2560,7 +2564,14 @@ td.fleet-uptime {
   border-bottom-color: var(--accent);
 }
 
-.settings-card + .settings-card {
+/* Config panels hold tables, so unlike the narrow thresholds form they
+   take the full content width. */
+.config-card {
+  max-width: none;
+}
+
+.settings-card + .settings-card,
+.config-card + .config-card {
   margin-top: 1rem;
 }
 

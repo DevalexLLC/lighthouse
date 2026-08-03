@@ -409,7 +409,7 @@ export default function ProbesPanel({
   return (
     <>
       {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
-      <section className="card settings-card">
+      <section className="card settings-card config-card">
         <div className="card-head">
           <div><span className="eyebrow">Measurement workload</span><h2>Probes</h2></div>
           <span className="hint">Changes reach agents within ~30s · refreshes every 30s</span>

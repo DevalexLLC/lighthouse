@@ -152,7 +152,7 @@ export default function TargetsPanel({
   return (
     <>
       {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
-      <section className="card settings-card">
+      <section className="card settings-card config-card">
         <div className="card-head">
           <div><span className="eyebrow">Probe destinations</span><h2>External targets</h2></div>
           <span className="hint">Refreshes every 30s</span>
@@ -241,7 +241,7 @@ export default function TargetsPanel({
           </div>
         )}
       </section>
-      <section className="card settings-card">
+      <section className="card settings-card config-card">
         <div className="card-head">
           <div><span className="eyebrow">Enrollment-managed</span><h2>Agent targets</h2></div>
         </div>
