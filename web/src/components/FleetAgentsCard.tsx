@@ -105,10 +105,19 @@ export default function FleetAgentsCard({
                 const samples = inWindow.reduce((s, b) => s + b.samples, 0)
                 const ok = inWindow.reduce((s, b) => s + b.ok, 0)
                 const uptime = samples > 0 ? (100 * ok) / samples : null
+                // The ratio only covers buckets that have samples — an agent
+                // that succeeded briefly and then went silent must not read
+                // as a confident 100%. Partial coverage renders muted with
+                // the measured span spelled out.
+                const covered = inWindow.filter((b) => b.samples > 0).length
+                const coveredHours = (covered * bucketS) / 3600
+                const partial = uptime != null && covered < SLOTS
                 const stripLabel =
                   uptime == null
                     ? 'No probe results in the last 24 hours'
-                    : `24 hour probe success ${uptime.toFixed(1)}%`
+                    : partial
+                      ? `Probe success ${uptime.toFixed(1)}% over the ${coveredHours.toFixed(1)} measured hours of the last 24`
+                      : `24 hour probe success ${uptime.toFixed(1)}%`
                 return (
                   <tr key={a.id}>
                     <td>
@@ -127,6 +136,10 @@ export default function FleetAgentsCard({
                     <td className="fleet-uptime">
                       {uptime == null ? (
                         <span title="No probe results in the last 24 hours">—</span>
+                      ) : partial ? (
+                        <span className="fleet-uptime-partial" title={stripLabel}>
+                          {uptime.toFixed(1)}%*
+                        </span>
                       ) : (
                         `${uptime.toFixed(1)}%`
                       )}

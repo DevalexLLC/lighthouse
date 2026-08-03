@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError, apiPost } from '../api'
+import LogoMark from '../components/LogoMark'
 import type { LoginResponse } from '../types'
 
 export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => void }) {
@@ -32,14 +33,14 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
   return (
     <div className="login-wrap">
       <section className="login-context" aria-label="Product introduction">
-        <img className="logo-mark login-context-mark" src="/lighthouse-mark.svg" alt="" />
+        <LogoMark className="logo-mark login-context-mark" />
         <h1>See the network clearly.</h1>
         <p>Monitor inter-site connectivity, correlate incidents, and investigate directional performance from one control plane.</p>
         <div className="login-signals" aria-hidden="true"><span /><span /><span /><span /></div>
       </section>
       <form className="login-card" onSubmit={submit} aria-busy={busy}>
         <div className="login-mark">
-          <img className="logo-mark logo-mark-login" src="/lighthouse-mark.svg" alt="" />
+          <LogoMark className="logo-mark logo-mark-login" />
           <h1>Lighthouse</h1>
         </div>
         <p className="login-sub">Sign in to the Lighthouse control plane.</p>

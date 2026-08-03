@@ -75,17 +75,18 @@ export default function WorldMap({
 
     // Link count and best latency cover every monitored pair — a placed site
     // probing an unplaced peer still has that link (only drawing needs
-    // coordinates, and bubbles need only their own).
-    const seen = new Set<string>()
+    // coordinates, and bubbles need only their own). One grouping pass keeps
+    // this linear in cells; filtering per pair would go quadratic on large
+    // meshes.
+    const byPair = new Map<string, { x: string; y: string; cells: MatrixCell[] }>()
     for (const c of cells) {
       const [x, y] = c.src < c.dst ? [c.src, c.dst] : [c.dst, c.src]
       const key = pairKey(x, y)
-      if (seen.has(key)) continue
-      seen.add(key)
-      const pairCells = cells.filter(
-        (cell) =>
-          (cell.src === x && cell.dst === y) || (cell.src === y && cell.dst === x),
-      )
+      let entry = byPair.get(key)
+      if (!entry) byPair.set(key, (entry = { x, y, cells: [] }))
+      entry.cells.push(c)
+    }
+    for (const { x, y, cells: pairCells } of byPair.values()) {
       const liveLatencies = pairCells
         .filter((cell) => cell.status === 'ok' || cell.status === 'degraded')
         .map((cell) => cell.latency_us)

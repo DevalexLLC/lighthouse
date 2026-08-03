@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, apiGet, apiPost, setCsrfToken } from './api'
 import type { LoginResponse, User } from './types'
+import LogoMark from './components/LogoMark'
 import ThemeToggle from './components/ThemeToggle'
 import Agents from './views/Agents'
 import Login from './views/Login'
@@ -82,7 +83,7 @@ export default function App() {
   if (!booted) {
     return (
       <div className="boot-state" role="status">
-        <img className="logo-mark logo-mark-boot" src="/lighthouse-mark.svg" alt="" />
+        <LogoMark className="logo-mark logo-mark-boot" />
         Loading Lighthouse…
       </div>
     )
@@ -108,7 +109,7 @@ export default function App() {
       </button>
       <header className="topbar">
         <a className="brand" href="#/">
-          <img className="logo-mark logo-mark-header" src="/lighthouse-mark.svg" alt="" />
+          <LogoMark className="logo-mark logo-mark-header" />
           Lighthouse
         </a>
         <nav className="topnav" aria-label="Primary navigation">

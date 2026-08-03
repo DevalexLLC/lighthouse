@@ -2227,6 +2227,13 @@ td.fleet-uptime {
   font-weight: 650;
 }
 
+/* Partial 24 h coverage: the ratio only describes the measured span, so it
+   must not carry the same visual confidence as a fully-covered figure. */
+.fleet-uptime-partial {
+  color: var(--ink-3);
+  font-weight: 550;
+}
+
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));

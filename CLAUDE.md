@@ -170,12 +170,15 @@ Full design + milestone plan: `docs/architecture.md`.
   the carrier cyan was before); degraded/down/stale bubbles take the
   status ramp. Carriers and pulses are gone — per-direction detail lives
   in matrix mode and the hover card's breakdown bar.
-- Dashboard branding uses the bundled `web/public/lighthouse-mark.svg` for
-  the header, login page, loading state, and favicon; it has no runtime
-  network or font dependency. The README shows the same mark via
-  `<picture>` with per-theme copies in `docs/assets/` (GitHub theme
-  switching can't use the app SVG's embedded media query, which tracks
-  the OS scheme); keep all three files' geometry in lockstep. They live
+- Dashboard branding uses the lighthouse mark with no runtime network or
+  font dependency. In-app renders (header, login, loading) go through
+  `components/LogoMark.tsx`, which picks the static
+  `web/public/lighthouse-mark-{light,dark}.svg` variant from the resolved
+  theme — the adaptive `web/public/lighthouse-mark.svg`'s embedded media
+  query tracks the OS scheme and would ignore the manual toggle; the
+  favicon keeps the adaptive mark (browser chrome follows the OS). The
+  README shows the same mark via `<picture>` with per-theme copies in
+  `docs/assets/`; keep all five files' geometry in lockstep. They live
   outside `web/public/` on purpose — anything there is copied into
   `web/dist/` at the next build. Public navigation is task-oriented; legacy
   route ids remain aliases and API/path-hop vocabulary is unchanged.
