@@ -10,6 +10,14 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - Body: wrap at 72 chars, explain *why*, blank line after the subject.
 - Reference issues in a trailer (`Refs: #123`), not the subject.
 
+## Pull requests
+
+`main` accepts no direct pushes — not from contributors, not from
+maintainers. Every change lands through a pull request whose checks pass:
+`offline-build` (the air-gap gate), `web-lint`, and one `docker-build` per
+image. Reviews are not required, so a maintainer can self-merge once CI is
+green; force-pushes and branch deletion are blocked outright.
+
 ## Ground rules
 
 - **Builds must work offline.** Never add a build step that reaches the

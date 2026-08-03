@@ -60,6 +60,15 @@ Full design + milestone plan: `docs/architecture.md`.
   applied file silently skips the change on upgrades). Pre-first-release,
   editing `0001_init.sql` is fine; recreate dev DBs with `down -v`.
 - Conventional Commits (`feat(scope): ...`); see CONTRIBUTING.md.
+- Branch → PR is ENFORCED, not convention: a GitHub ruleset protects `main`
+  with no bypass actors, so even the repo owner cannot push to it. Work on a
+  branch, open a PR, merge once CI is green (no approval required — a
+  maintainer can self-merge). The five checks are required BY NAME
+  (`offline-build`, `web-lint`, and the three `docker-build` matrix legs),
+  so renaming a CI job strands every PR on a check that no longer reports —
+  update the ruleset in the same change. Already committed to `main`
+  locally? `git switch -c <branch>` (the commits follow), then
+  `git branch -f main origin/main` to rewind main.
 
 ## Status (as of 2026-08-03)
 
