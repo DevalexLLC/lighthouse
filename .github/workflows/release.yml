@@ -46,6 +46,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push ${{ matrix.name }}
         uses: docker/build-push-action@v6
+        env:
+          # Build-record artifacts are noise here and their size made the
+          # publish job's unfiltered artifact download flaky.
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: .
           file: ${{ matrix.file }}
@@ -94,8 +98,40 @@ jobs:
           path: dist/rpm/RPMS/${{ matrix.rpmarch }}/*.rpm
           if-no-files-found: error
 
-  bundle:
+# The release is created BEFORE the bundles exist, and each bundle job
+# uploads its ~1.3 GiB tarball straight to the release. Funneling the
+# bundles through a publish job as workflow artifacts failed repeatably
+# (download-artifact gave up after 5 retries on the multi-GiB transfer),
+# and the round-trip was pure overhead. Checksums are per-asset .sha256
+# files; the bundle also carries an internal SHA256SUMS over its contents.
+  release:
     needs: [images, rpms]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rpm-*
+          path: artifacts
+      - name: Create GitHub release with RPMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release
+          find artifacts -name '*.rpm' -exec cp {} release/ \;
+          cd release
+          for f in *.rpm; do sha256sum "$f" > "$f.sha256"; done
+          # Draft until both bundles have uploaded — a non-draft release
+          # here would announce an RPM-only release, permanently if a
+          # bundle job failed.
+          gh release create "${{ github.ref_name }}" ./* \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --draft
+
+  bundle:
+    needs: [release]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -119,31 +155,24 @@ jobs:
           find dist/rpm/RPMS-download -name '*.rpm' -exec cp {} dist/rpm/RPMS/all/ \;
       - name: Assemble bundle
         run: deploy/release/build-bundle.sh "${{ github.ref_name }}" "${{ matrix.arch }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bundle-${{ matrix.arch }}
-          path: dist/lighthouse-*-bundle.tar.gz
-          if-no-files-found: error
+      - name: Upload bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          f=$(ls lighthouse-*-bundle.tar.gz)
+          sha256sum "$f" > "$f.sha256"
+          gh release upload "${{ github.ref_name }}" "$f" "$f.sha256" \
+            --repo "${{ github.repository }}"
 
   publish:
     needs: [bundle]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Collect release assets
-        run: |
-          mkdir -p release
-          find artifacts -name '*.tar.gz' -exec cp {} release/ \;
-          find artifacts -name '*.rpm' -exec cp {} release/ \;
-          (cd release && sha256sum * > SHA256SUMS)
-          ls -l release
-      - name: Create GitHub release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" release/* \
+          gh release edit "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+            --draft=false
