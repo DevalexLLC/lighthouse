@@ -16,7 +16,7 @@ COMPOSE_DEV  = deploy/compose-dev/docker-compose.dev.yml
 # alone silently removes overlay services (fake agents, their enrollment state).
 COMPOSE      = docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_DEV)
 
-.PHONY: all build server agent test lint vet proto web vendor up down logs ps seed clean
+.PHONY: all build server agent test lint vet proto web vendor up down reset logs ps seed clean
 
 all: build
 
@@ -56,7 +56,14 @@ up:
 	LIGHTHOUSE_DB_PASSWORD=$${LIGHTHOUSE_DB_PASSWORD:-lighthouse-dev} $(COMPOSE) up -d --build
 
 down:
-	$(COMPOSE) down
+	LIGHTHOUSE_DB_PASSWORD=$${LIGHTHOUSE_DB_PASSWORD:-lighthouse-dev} $(COMPOSE) down
+
+# Full dev reset: tear down INCLUDING volumes so the next `make up` gets a
+# fresh DB/CA/tokens. This is the "recreate dev DBs" step the docs call
+# `down -v` — which plain `make down -v` cannot do (make eats -v as its
+# own --version flag).
+reset:
+	LIGHTHOUSE_DB_PASSWORD=$${LIGHTHOUSE_DB_PASSWORD:-lighthouse-dev} $(COMPOSE) down -v
 
 logs:
 	$(COMPOSE) logs -f --tail=100

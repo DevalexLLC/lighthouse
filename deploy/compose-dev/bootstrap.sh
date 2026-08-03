@@ -50,18 +50,34 @@ if ! printf '%s\n' "$probes" | grep -qE "http +lon -> dashboard "; then
         --param http.insecure_skip_verify=true --param http.expect_status=200
 fi
 
-# Full mesh across all six fake sites. The TCP mesh probes port 9
-# (discard) — peers run no listener there, so those cells stay
-# CONN_REFUSED, deliberately keeping a mixed-health board next to the
-# green ICMP mesh.
+# Full mesh across all six fake sites. All seeded probes have working
+# targets, so a fresh stack converges to an all-healthy board. (The old
+# deliberate port-9 TCP mesh probe — CONN_REFUSED everywhere to keep a
+# mixed-health board — is gone; inject failures per the M4 gate recipes
+# when a broken board is wanted.)
 lighthouse-server mesh create --config "$CONFIG" --name core
 for site in nyc lon syd va co tx; do
     lighthouse-server mesh add --config "$CONFIG" --name core --site "$site"
 done
-if ! printf '%s\n' "$probes" | grep -qE "tcp +mesh:core "; then
-    lighthouse-server probe add --config "$CONFIG" \
-        --mesh core --type tcp --interval 30s --timeout 5s --param port=9
-fi
+
+# Retired seed: remove the port-9 probe from a dev DB that predates its
+# retirement so reruns converge (agents drop it on the next 30 s config
+# poll). probe list does not print params, so match the retired seed's full
+# printed shape (tcp mesh:core 30s 5s enabled) and remove each match
+# individually — a user-added TCP mesh probe with different settings is
+# left alone (one that is column-for-column identical is indistinguishable
+# without the DB; that limitation is accepted for a dev seed). probe rm
+# only deletes the config — the probe's failure history and any still-open
+# probe_failing events persist, so a stack that ran it stays mixed-health
+# until `make reset && make up` (plain `make down -v` does NOT work: make
+# consumes -v itself) or until the 24 h dashboards age the history out.
+legacy=$(printf '%s\n' "$probes" \
+    | awk '$2 == "tcp" && $3 == "mesh:core" && $4 == "30s" && $5 == "5s" && $6 == "true" { print $1 }')
+for id in $legacy; do
+    echo "bootstrap: removing retired port-9 TCP mesh probe $id"
+    lighthouse-server probe rm --config "$CONFIG" --id "$id"
+    echo "bootstrap: WARNING: its open incidents and 24 h failure history persist — run 'make reset && make up' for a clean all-healthy board"
+done
 
 # M4: ICMP mesh gives every ordered pair real RTT/loss/jitter (train of
 # 10 × 200 ms = 2 s fits the 5 s timeout); traceroute mesh watches paths on
