@@ -49,18 +49,15 @@ function Cell({ cell, thresholds }: { cell: MatrixCell; thresholds: ThresholdSet
   // The API intentionally reports the best working latency and the worst
   // probe loss. Label that fold explicitly so mixed checks never read as a
   // single direction simultaneously succeeding and losing every packet.
-  const worstLoss = cell.loss_pct != null && cell.loss_pct > 0
-    ? ` · worst ${cell.loss_pct.toFixed(0)}% loss`
-    : ''
+  const worstLoss = cell.loss_pct != null && cell.loss_pct > 0 ? ` · worst ${cell.loss_pct.toFixed(0)}% loss` : ''
   const checksLong =
     cell.status === 'stale'
       ? 'No recent data'
       : cell.status === 'ok'
         ? `${total} of ${total} checks healthy`
         : `${failed} of ${total} checks failed`
-  const worstLossLong = cell.loss_pct != null && cell.loss_pct > 0
-    ? `, worst probe ${cell.loss_pct.toFixed(0)}% loss`
-    : ''
+  const worstLossLong =
+    cell.loss_pct != null && cell.loss_pct > 0 ? `, worst probe ${cell.loss_pct.toFixed(0)}% loss` : ''
   return (
     <td className={'cell status-' + cls}>
       <a
@@ -72,11 +69,10 @@ function Cell({ cell, thresholds }: { cell: MatrixCell; thresholds: ThresholdSet
           <span className={'dot swatch status-' + cls} />
           {CLASS_LABEL[cls]}
         </span>
-        <span className="cell-value">
-          {hasLatency ? fmtLatency(cell.latency_us) : '—'}
-        </span>
+        <span className="cell-value">{hasLatency ? fmtLatency(cell.latency_us) : '—'}</span>
         <span className="cell-sub">
-          {checks}{worstLoss}
+          {checks}
+          {worstLoss}
         </span>
       </a>
     </td>
@@ -103,8 +99,8 @@ export default function MatrixTable({
   if (sites.length < 2) {
     return (
       <p className="muted">
-        Fewer than two sites are enrolled. Enroll agents at a second site and add both to a
-        mesh group to light up the board.
+        Fewer than two sites are enrolled. Enroll agents at a second site and add both to a mesh group to light up the
+        board.
       </p>
     )
   }
@@ -116,7 +112,8 @@ export default function MatrixTable({
           <thead>
             <tr>
               <th className="corner eyebrow" scope="col">
-                source ↓<br />destination →
+                source ↓<br />
+                destination →
               </th>
               {sites.map((s) => (
                 <th key={s.name} scope="col">
@@ -130,8 +127,7 @@ export default function MatrixTable({
               <tr key={src.name}>
                 <th scope="row">{src.display_name || src.name}</th>
                 {sites.map((dst) => {
-                  if (src.name === dst.name)
-                    return <td key={dst.name} className="diag" aria-label="same site" />
+                  if (src.name === dst.name) return <td key={dst.name} className="diag" aria-label="same site" />
                   const cell = cellFor.get(src.name + '\u0000' + dst.name)
                   if (!cell)
                     return (

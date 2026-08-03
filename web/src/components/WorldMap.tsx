@@ -187,12 +187,7 @@ export default function WorldMap({
           role="img"
           aria-label={`World map of ${placed.length} monitored ${placed.length === 1 ? 'site' : 'sites'}`}
         >
-          <rect
-            className="map-bg"
-            width={MAP_VIEW_W}
-            height={MAP_VIEW_H}
-            onClick={() => setPinned(null)}
-          />
+          <rect className="map-bg" width={MAP_VIEW_W} height={MAP_VIEW_H} onClick={() => setPinned(null)} />
           <path className="map-dotgrid" d={DOT_GRID_D} />
           {placed.map((s) => {
             const { x, y } = projectMap(s.longitude!, s.latitude!)
@@ -224,9 +219,7 @@ export default function WorldMap({
                 <circle className="map-site-hit" cx={x} cy={y} r={Math.max(12, r)} />
                 <circle className="map-bubble" cx={x} cy={y} r={r} />
                 <circle className="map-bubble-core" cx={x} cy={y} r={3} />
-                {pinned === s.name && (
-                  <circle className="map-selection" cx={x} cy={y} r={r + 3.5} />
-                )}
+                {pinned === s.name && <circle className="map-selection" cx={x} cy={y} r={r + 3.5} />}
               </g>
             )
           })}
@@ -276,9 +269,8 @@ export default function WorldMap({
               </div>
             )}
             <div className="map-tip-caption">
-              {shownStats.degree} {shownStats.degree === 1 ? 'link' : 'links'} ·{' '}
-              {shownStats.dirCounts.ok} of {shownStats.directions}{' '}
-              {shownStats.directions === 1 ? 'direction' : 'directions'} healthy
+              {shownStats.degree} {shownStats.degree === 1 ? 'link' : 'links'} · {shownStats.dirCounts.ok} of{' '}
+              {shownStats.directions} {shownStats.directions === 1 ? 'direction' : 'directions'} healthy
             </div>
             {shownStats.peers.length > 0 && (
               <div className="map-tip-links">
@@ -289,7 +281,9 @@ export default function WorldMap({
                     aria-label={`Open pair detail for ${shownSite.name} and ${peer}`}
                   >
                     {shownSite.name} ⇄ {peer}
-                    <span className="map-tip-link-arrow" aria-hidden="true">↗</span>
+                    <span className="map-tip-link-arrow" aria-hidden="true">
+                      ↗
+                    </span>
                   </a>
                 ))}
               </div>

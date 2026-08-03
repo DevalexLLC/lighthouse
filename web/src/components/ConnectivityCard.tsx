@@ -27,9 +27,7 @@ export default function ConnectivityCard({
           <h2>Connectivity</h2>
         </div>
         <div className="card-head-actions">
-          <span className="freshness">
-            Latest {Math.round(matrix.horizon_s / 60)}-minute probe horizon
-          </span>
+          <span className="freshness">Latest {Math.round(matrix.horizon_s / 60)}-minute probe horizon</span>
           <div className="control-group" role="group" aria-label="Connectivity view">
             <button
               className={mode === 'map' ? 'active' : ''}

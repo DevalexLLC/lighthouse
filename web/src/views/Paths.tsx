@@ -54,10 +54,7 @@ function changedHopCount(oldHops: Hop[], newHops: Hop[]): number {
   const ttls = new Set([...oldHops.map((h) => h.ttl), ...newHops.map((h) => h.ttl)])
   let changed = 0
   for (const ttl of ttls) {
-    if (
-      hopLabel(oldHops.find((h) => h.ttl === ttl)) !==
-      hopLabel(newHops.find((h) => h.ttl === ttl))
-    ) {
+    if (hopLabel(oldHops.find((h) => h.ttl === ttl)) !== hopLabel(newHops.find((h) => h.ttl === ttl))) {
       changed++
     }
   }
@@ -79,7 +76,9 @@ function EventRow({ e }: { e: PathEvent }) {
         <span className="mono">
           {e.src_site} → {e.dst_site ?? e.target ?? '?'}
         </span>
-        <span className="path-summary">{count} {count === 1 ? 'hop' : 'hops'} changed</span>
+        <span className="path-summary">
+          {count} {count === 1 ? 'hop' : 'hops'} changed
+        </span>
         <span className="hint" title={fmtTime(e.time)}>
           {fmtAgo(e.time)}
         </span>
@@ -91,9 +90,13 @@ function EventRow({ e }: { e: PathEvent }) {
         <div id={detailsID} className="path-event-details">
           <div className="path-hashes">
             <span className="hint">Path IDs</span>
-            <span className="hash-chip" title={e.old_path_hash}>{e.old_path_hash}</span>
+            <span className="hash-chip" title={e.old_path_hash}>
+              {e.old_path_hash}
+            </span>
             <span aria-hidden="true">→</span>
-            <span className="hash-chip" title={e.new_path_hash}>{e.new_path_hash}</span>
+            <span className="hash-chip" title={e.new_path_hash}>
+              {e.new_path_hash}
+            </span>
           </div>
           <HopDiff oldHops={e.old_hops} newHops={e.new_hops} />
         </div>
@@ -143,8 +146,20 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
 
   useEffect(() => setVisibleLimit(ROUTE_PAGE), [query, win])
 
-  if (error && !data) return <div className="state-panel state-error"><h1>Routes unavailable</h1><p>{error}</p></div>
-  if (!data) return <div className="state-panel" role="status"><span className="state-spinner" />Loading route changes…</div>
+  if (error && !data)
+    return (
+      <div className="state-panel state-error">
+        <h1>Routes unavailable</h1>
+        <p>{error}</p>
+      </div>
+    )
+  if (!data)
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading route changes…
+      </div>
+    )
 
   return (
     <>
@@ -161,18 +176,25 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
         </div>
       </div>
 
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
 
       <div className="view-toolbar">
-        <label className="search-field"><span className="sr-only">Search routes</span><input type="search" placeholder="Search source, destination, or agent" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+        <label className="search-field">
+          <span className="sr-only">Search routes</span>
+          <input
+            type="search"
+            placeholder="Search source, destination, or agent"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
         <div className="control-group" role="group" aria-label="Window">
           {WINDOWS.map((w) => (
-            <button
-              key={w}
-              className={win === w ? 'active' : ''}
-              aria-pressed={win === w}
-              onClick={() => setWin(w)}
-            >
+            <button key={w} className={win === w ? 'active' : ''} aria-pressed={win === w} onClick={() => setWin(w)}>
               {w}
             </button>
           ))}
@@ -181,20 +203,30 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
 
       <div className="card">
         <div className="card-head">
-          <div><span className="eyebrow">Change log</span><h2>Path changes</h2></div>
+          <div>
+            <span className="eyebrow">Change log</span>
+            <h2>Path changes</h2>
+          </div>
           <span className="hint">
             Traceroutes run on a slower cadence than other probes
             {error ? ' · refresh failed, showing last data' : ''}
           </span>
         </div>
         {visible.length === 0 ? (
-          <div className="empty-state"><strong>{query ? 'No matching route changes' : 'Routes stable'}</strong><span>{query ? 'Try a different site or agent.' : 'No path changes in this window.'}</span></div>
+          <div className="empty-state">
+            <strong>{query ? 'No matching route changes' : 'Routes stable'}</strong>
+            <span>{query ? 'Try a different site or agent.' : 'No path changes in this window.'}</span>
+          </div>
         ) : (
           <>
-            {visible.slice(0, visibleLimit).map((e) => <EventRow key={e.id} e={e} />)}
+            {visible.slice(0, visibleLimit).map((e) => (
+              <EventRow key={e.id} e={e} />
+            ))}
             {visibleLimit < visible.length && (
               <div className="progressive-footer">
-                <span className="hint">Showing {visibleLimit} of {visible.length} route changes</span>
+                <span className="hint">
+                  Showing {visibleLimit} of {visible.length} route changes
+                </span>
                 <button
                   className="secondary-button"
                   onClick={() => setVisibleLimit((limit) => Math.min(visible.length, limit + ROUTE_PAGE))}

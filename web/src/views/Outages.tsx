@@ -35,9 +35,7 @@ function errorSummary(error: string | null): string {
 }
 
 function target(o: OutageEvent): string {
-  return o.kind === 'agent_offline'
-    ? `${o.src_site} · ${o.agent}`
-    : `${o.src_site} → ${o.dst_site ?? o.target ?? '?'}`
+  return o.kind === 'agent_offline' ? `${o.src_site} · ${o.agent}` : `${o.src_site} → ${o.dst_site ?? o.target ?? '?'}`
 }
 
 interface IncidentGroup {
@@ -53,7 +51,9 @@ function groupIncidents(events: OutageEvent[]): IncidentGroup[] {
   const groups = new Map<string, IncidentGroup>()
   for (const event of events) {
     const open = event.closed_at == null
-    const key = [open ? 'active' : 'resolved', event.kind, event.probe_type ?? '', normalizeError(event.error)].join('\u0000')
+    const key = [open ? 'active' : 'resolved', event.kind, event.probe_type ?? '', normalizeError(event.error)].join(
+      '\u0000',
+    )
     const group = groups.get(key) ?? {
       key,
       open,
@@ -75,7 +75,7 @@ function IncidentGroupRow({ group }: { group: IncidentGroup }) {
   const [expanded, setExpanded] = useState(false)
   const [detailLimit, setDetailLimit] = useState(INCIDENT_DETAIL_PAGE)
   const firstOpened = group.events.reduce(
-    (earliest, event) => Date.parse(event.opened_at) < Date.parse(earliest) ? event.opened_at : earliest,
+    (earliest, event) => (Date.parse(event.opened_at) < Date.parse(earliest) ? event.opened_at : earliest),
     group.events[0].opened_at,
   )
   const label = group.kind === 'agent_offline' ? 'Agents offline' : 'Probe failures'
@@ -108,12 +108,17 @@ function IncidentGroupRow({ group }: { group: IncidentGroup }) {
           <strong>{group.probe}</strong>
           <small>{group.open ? `active for ${fmtDuration(firstOpened, null)}` : 'resolved'}</small>
         </span>
-        <span className="incident-toggle">{expanded ? 'Hide details' : 'View details'} <span aria-hidden="true">{expanded ? '−' : '+'}</span></span>
+        <span className="incident-toggle">
+          {expanded ? 'Hide details' : 'View details'} <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+        </span>
       </button>
       {expanded && (
         <div id={detailsID} className="incident-details">
           <div className="incident-detail-head">
-            <span>Target</span><span>Started</span><span>Duration</span><span>Detail</span>
+            <span>Target</span>
+            <span>Started</span>
+            <span>Duration</span>
+            <span>Detail</span>
           </div>
           {group.events.slice(0, detailLimit).map((event) => (
             <div className="incident-instance" key={event.id}>
@@ -125,7 +130,9 @@ function IncidentGroupRow({ group }: { group: IncidentGroup }) {
           ))}
           {detailLimit < group.events.length && (
             <div className="progressive-footer">
-              <span className="hint">Showing {detailLimit} of {group.events.length} targets</span>
+              <span className="hint">
+                Showing {detailLimit} of {group.events.length} targets
+              </span>
               <button
                 className="secondary-button"
                 onClick={() => setDetailLimit((limit) => Math.min(group.events.length, limit + INCIDENT_DETAIL_PAGE))}
@@ -189,8 +196,20 @@ export default function Outages({ onAuthError }: { onAuthError: (err: unknown) =
     return groupIncidents(filtered)
   }, [data, filter, query])
 
-  if (error && !data) return <div className="state-panel state-error"><h1>Incidents unavailable</h1><p>{error}</p></div>
-  if (!data) return <div className="state-panel" role="status"><span className="state-spinner" />Loading incidents…</div>
+  if (error && !data)
+    return (
+      <div className="state-panel state-error">
+        <h1>Incidents unavailable</h1>
+        <p>{error}</p>
+      </div>
+    )
+  if (!data)
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading incidents…
+      </div>
+    )
 
   return (
     <>
@@ -201,33 +220,88 @@ export default function Outages({ onAuthError }: { onAuthError: (err: unknown) =
           <p>Correlated failures requiring attention, followed by resolved history.</p>
         </div>
         <div className="chips">
-          <span className={'chip' + (activeCount > 0 ? ' chip-alert' : '')}>{activeCount > 0 && <span className="dot swatch status-down" />}Active targets <span className="mono">{activeTargetCount}</span></span>
-          <span className="chip">In window <span className="mono">{data.outages.length}</span></span>
+          <span className={'chip' + (activeCount > 0 ? ' chip-alert' : '')}>
+            {activeCount > 0 && <span className="dot swatch status-down" />}Active targets{' '}
+            <span className="mono">{activeTargetCount}</span>
+          </span>
+          <span className="chip">
+            In window <span className="mono">{data.outages.length}</span>
+          </span>
         </div>
       </div>
 
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
 
       <div className="view-toolbar incident-toolbar">
         <div className="control-group" role="group" aria-label="Incident status">
-          <button className={filter === 'active' ? 'active' : ''} aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>Active {activeCount}</button>
-          <button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {data.outages.length}</button>
-          <button className={filter === 'resolved' ? 'active' : ''} aria-pressed={filter === 'resolved'} onClick={() => setFilter('resolved')}>Resolved {resolvedCount}</button>
+          <button
+            className={filter === 'active' ? 'active' : ''}
+            aria-pressed={filter === 'active'}
+            onClick={() => setFilter('active')}
+          >
+            Active {activeCount}
+          </button>
+          <button
+            className={filter === 'all' ? 'active' : ''}
+            aria-pressed={filter === 'all'}
+            onClick={() => setFilter('all')}
+          >
+            All {data.outages.length}
+          </button>
+          <button
+            className={filter === 'resolved' ? 'active' : ''}
+            aria-pressed={filter === 'resolved'}
+            onClick={() => setFilter('resolved')}
+          >
+            Resolved {resolvedCount}
+          </button>
         </div>
-        <label className="search-field"><span className="sr-only">Search incidents</span><input type="search" placeholder="Search targets or errors" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+        <label className="search-field">
+          <span className="sr-only">Search incidents</span>
+          <input
+            type="search"
+            placeholder="Search targets or errors"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
         <div className="control-group" role="group" aria-label="Time window">
-          {WINDOWS.map((w) => <button key={w} className={win === w ? 'active' : ''} aria-pressed={win === w} onClick={() => setWin(w)}>{w}</button>)}
+          {WINDOWS.map((w) => (
+            <button key={w} className={win === w ? 'active' : ''} aria-pressed={win === w} onClick={() => setWin(w)}>
+              {w}
+            </button>
+          ))}
         </div>
       </div>
 
       <section className="card incident-card">
         <div className="card-head">
-          <div><span className="eyebrow">Correlated by state, probe, and error</span><h2>{filter === 'active' ? 'Active incident groups' : filter === 'resolved' ? 'Resolved incident groups' : 'Incident groups'}</h2></div>
+          <div>
+            <span className="eyebrow">Correlated by state, probe, and error</span>
+            <h2>
+              {filter === 'active'
+                ? 'Active incident groups'
+                : filter === 'resolved'
+                  ? 'Resolved incident groups'
+                  : 'Incident groups'}
+            </h2>
+          </div>
           <span className="hint">Opens after 3 failures · resolves after 3 successes</span>
         </div>
         {groups.length === 0 ? (
-          <div className="empty-state"><strong>{query ? 'No matching incidents' : filter === 'active' ? 'All clear' : 'No incident history'}</strong><span>{query ? 'Try a different target, probe, or error.' : 'The network watch continues.'}</span></div>
-        ) : groups.map((group) => <IncidentGroupRow key={group.key} group={group} />)}
+          <div className="empty-state">
+            <strong>
+              {query ? 'No matching incidents' : filter === 'active' ? 'All clear' : 'No incident history'}
+            </strong>
+            <span>{query ? 'Try a different target, probe, or error.' : 'The network watch continues.'}</span>
+          </div>
+        ) : (
+          groups.map((group) => <IncidentGroupRow key={group.key} group={group} />)
+        )}
       </section>
     </>
   )

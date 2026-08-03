@@ -71,8 +71,7 @@ export default function TargetsPanel({
     }
   }, [onAuthError])
 
-  const reload = () =>
-    apiGet<TargetsConfigResponse>('/api/v1/config/targets').then(setData).catch(onAuthError)
+  const reload = () => apiGet<TargetsConfigResponse>('/api/v1/config/targets').then(setData).catch(onAuthError)
 
   const save = async () => {
     if (!draft) return
@@ -122,10 +121,20 @@ export default function TargetsPanel({
   }
 
   if (error && !data) {
-    return <div className="state-panel state-error"><h2>Targets unavailable</h2><p>{error}</p></div>
+    return (
+      <div className="state-panel state-error">
+        <h2>Targets unavailable</h2>
+        <p>{error}</p>
+      </div>
+    )
   }
   if (!data) {
-    return <div className="state-panel" role="status"><span className="state-spinner" />Loading targets…</div>
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading targets…
+      </div>
+    )
   }
 
   const externals = data.targets.filter((t) => t.kind === 'external')
@@ -151,31 +160,50 @@ export default function TargetsPanel({
 
   return (
     <>
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
       <section className="card settings-card config-card">
         <div className="card-head">
-          <div><span className="eyebrow">Probe destinations</span><h2>External targets</h2></div>
+          <div>
+            <span className="eyebrow">Probe destinations</span>
+            <h2>External targets</h2>
+          </div>
           <span className="hint">Refreshes every 30s</span>
         </div>
         <p className="section-intro">
-          Hosts and URLs that site agents probe in addition to their mesh peers. A target in use by
-          probes cannot be deleted until those probes are removed.
+          Hosts and URLs that site agents probe in addition to their mesh peers. A target in use by probes cannot be
+          deleted until those probes are removed.
         </p>
         {externals.length === 0 ? (
-          <div className="empty-state"><strong>No external targets</strong><span>Add one below to probe infrastructure beyond the agent mesh.</span></div>
+          <div className="empty-state">
+            <strong>No external targets</strong>
+            <span>Add one below to probe infrastructure beyond the agent mesh.</span>
+          </div>
         ) : (
           <div className="scroll-x">
             <table className="events">
               <thead>
                 <tr>
-                  <th>Name</th><th>Address</th><th>Probes</th><th>Created</th>
-                  {isAdmin && <th className="actions-col"><span className="sr-only">Actions</span></th>}
+                  <th>Name</th>
+                  <th>Address</th>
+                  <th>Probes</th>
+                  <th>Created</th>
+                  {isAdmin && (
+                    <th className="actions-col">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {externals.map((t) => (
                   <tr key={t.id}>
-                    <td data-label="Name" className="mono">{t.name}</td>
+                    <td data-label="Name" className="mono">
+                      {t.name}
+                    </td>
                     <td data-label="Address" className="mono">
                       {t.url ? t.url : t.port ? `${t.address}:${t.port}` : t.address}
                     </td>
@@ -190,7 +218,9 @@ export default function TargetsPanel({
                           label="Delete"
                           confirmLabel="Confirm delete?"
                           disabled={t.probe_count > 0}
-                          title={t.probe_count > 0 ? `In use by ${t.probe_count} probe(s) — remove those first` : undefined}
+                          title={
+                            t.probe_count > 0 ? `In use by ${t.probe_count} probe(s) — remove those first` : undefined
+                          }
                           onConfirm={() => remove(t)}
                         />
                       </td>
@@ -212,7 +242,9 @@ export default function TargetsPanel({
             </div>
             {formErrors.length > 0 && (
               <ul className="error threshold-errors">
-                {formErrors.map((e) => <li key={e}>{e}</li>)}
+                {formErrors.map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
               </ul>
             )}
             <div className="threshold-foot">
@@ -243,24 +275,36 @@ export default function TargetsPanel({
       </section>
       <section className="card settings-card config-card">
         <div className="card-head">
-          <div><span className="eyebrow">Enrollment-managed</span><h2>Agent targets</h2></div>
+          <div>
+            <span className="eyebrow">Enrollment-managed</span>
+            <h2>Agent targets</h2>
+          </div>
         </div>
         <p className="section-intro">
-          Created automatically when an agent enrolls and removed with it; mesh probes resolve peers
-          through these. Read-only here.
+          Created automatically when an agent enrolls and removed with it; mesh probes resolve peers through these.
+          Read-only here.
         </p>
         {agents.length === 0 ? (
-          <div className="empty-state"><strong>No agent targets</strong><span>Enroll an agent and its peer target appears here.</span></div>
+          <div className="empty-state">
+            <strong>No agent targets</strong>
+            <span>Enroll an agent and its peer target appears here.</span>
+          </div>
         ) : (
           <div className="scroll-x">
             <table className="events">
               <thead>
-                <tr><th>Name</th><th>Probes</th><th>Created</th></tr>
+                <tr>
+                  <th>Name</th>
+                  <th>Probes</th>
+                  <th>Created</th>
+                </tr>
               </thead>
               <tbody>
                 {agents.map((t) => (
                   <tr key={t.id}>
-                    <td data-label="Name" className="mono">{t.name}</td>
+                    <td data-label="Name" className="mono">
+                      {t.name}
+                    </td>
                     <td data-label="Probes">{t.probe_count}</td>
                     <td data-label="Created">{fmtAgo(t.created_at)}</td>
                   </tr>

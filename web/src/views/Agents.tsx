@@ -21,8 +21,7 @@ type FleetFilter = 'all' | 'attention' | 'healthy'
 // the certificate cell says expired.
 function health(a: AgentInfo): { status: Health; label: string } {
   if (a.cert_revoked_at) return { status: 'down', label: 'revoked' }
-  if (a.cert_not_after && certDaysLeft(a.cert_not_after) < 0)
-    return { status: 'down', label: 'cert expired' }
+  if (a.cert_not_after && certDaysLeft(a.cert_not_after) < 0) return { status: 'down', label: 'cert expired' }
   if (a.offline) return { status: 'down', label: 'offline' }
   if (!a.last_seen_at) return { status: 'stale', label: 'never seen' }
   if (a.probes_failing > 0) return { status: 'degraded', label: 'degraded' }
@@ -89,8 +88,12 @@ function Row({ a }: { a: AgentInfo }) {
       <td className="mono" data-label="Agent" title={`enrolled ${fmtTime(a.enrolled_at)} · ${a.id}`}>
         {a.site} · {a.hostname}
       </td>
-      <td className="mono" data-label="Address">{a.probe_address || '—'}</td>
-      <td className="mono" data-label="Version">{a.version || '—'}</td>
+      <td className="mono" data-label="Address">
+        {a.probe_address || '—'}
+      </td>
+      <td className="mono" data-label="Version">
+        {a.version || '—'}
+      </td>
       <td data-label="Last seen" title={fmtTime(a.last_seen_at)}>
         {fmtAgo(a.last_seen_at)}
       </td>
@@ -164,13 +167,26 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
       if (filter === 'attention' && !needsAttention(agent)) return false
       if (filter === 'healthy' && needsAttention(agent)) return false
       if (!needle) return true
-      return [agent.site, agent.hostname, agent.probe_address, agent.version]
-        .some((value) => value.toLowerCase().includes(needle))
+      return [agent.site, agent.hostname, agent.probe_address, agent.version].some((value) =>
+        value.toLowerCase().includes(needle),
+      )
     })
   }, [data, filter, query])
 
-  if (error && !data) return <div className="state-panel state-error"><h1>Agents unavailable</h1><p>{error}</p></div>
-  if (!data) return <div className="state-panel" role="status"><span className="state-spinner" />Loading agents…</div>
+  if (error && !data)
+    return (
+      <div className="state-panel state-error">
+        <h1>Agents unavailable</h1>
+        <p>{error}</p>
+      </div>
+    )
+  if (!data)
+    return (
+      <div className="state-panel" role="status">
+        <span className="state-spinner" />
+        Loading agents…
+      </div>
+    )
 
   const down = data.agents.filter((a) => health(a).status === 'down').length
   const degraded = data.agents.filter((a) => health(a).status === 'degraded').length
@@ -204,27 +220,67 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
         </div>
       </div>
 
-      {error && <div className="inline-alert" role="status">Refresh failed. Showing the last successful snapshot.</div>}
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
 
       <div className="view-toolbar">
         <div className="control-group" role="group" aria-label="Agent health">
-          <button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All {data.agents.length}</button>
-          <button className={filter === 'attention' ? 'active' : ''} aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>Attention {attention}</button>
-          <button className={filter === 'healthy' ? 'active' : ''} aria-pressed={filter === 'healthy'} onClick={() => setFilter('healthy')}>Healthy {healthy}</button>
+          <button
+            className={filter === 'all' ? 'active' : ''}
+            aria-pressed={filter === 'all'}
+            onClick={() => setFilter('all')}
+          >
+            All {data.agents.length}
+          </button>
+          <button
+            className={filter === 'attention' ? 'active' : ''}
+            aria-pressed={filter === 'attention'}
+            onClick={() => setFilter('attention')}
+          >
+            Attention {attention}
+          </button>
+          <button
+            className={filter === 'healthy' ? 'active' : ''}
+            aria-pressed={filter === 'healthy'}
+            onClick={() => setFilter('healthy')}
+          >
+            Healthy {healthy}
+          </button>
         </div>
-        <label className="search-field"><span className="sr-only">Search agents</span><input type="search" placeholder="Search site, host, or address" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+        <label className="search-field">
+          <span className="sr-only">Search agents</span>
+          <input
+            type="search"
+            placeholder="Search site, host, or address"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
         <span className="freshness">Refreshes every {POLL_MS / 1000}s</span>
       </div>
 
       <div className="card">
         <div className="card-head">
-          <div><span className="eyebrow">Fleet inventory</span><h2>Enrolled agents</h2></div>
+          <div>
+            <span className="eyebrow">Fleet inventory</span>
+            <h2>Enrolled agents</h2>
+          </div>
           <span className="hint">
             Spool drops are lifetime totals{error ? ' · refresh failed, showing last data' : ''}
           </span>
         </div>
         {visible.length === 0 ? (
-          <div className="empty-state"><strong>{data.agents.length === 0 ? 'No agents enrolled' : 'No matching agents'}</strong><span>{data.agents.length === 0 ? 'Enroll an agent to begin monitoring a site.' : 'Change the health filter or search query.'}</span></div>
+          <div className="empty-state">
+            <strong>{data.agents.length === 0 ? 'No agents enrolled' : 'No matching agents'}</strong>
+            <span>
+              {data.agents.length === 0
+                ? 'Enroll an agent to begin monitoring a site.'
+                : 'Change the health filter or search query.'}
+            </span>
+          </div>
         ) : (
           <div className="scroll-x">
             <table className="events">

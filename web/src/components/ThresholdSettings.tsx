@@ -130,9 +130,7 @@ export default function ThresholdSettingsPanel({
 
   const currentDraft = draft ?? draftFrom(settings.thresholds)
   const savedDraft = draftFrom(settings.thresholds)
-  const dirty = (Object.keys(currentDraft) as (keyof Draft)[]).some(
-    (key) => currentDraft[key] !== savedDraft[key],
-  )
+  const dirty = (Object.keys(currentDraft) as (keyof Draft)[]).some((key) => currentDraft[key] !== savedDraft[key])
 
   return (
     <div className={'threshold-settings threshold-settings-' + variant}>
@@ -159,9 +157,7 @@ export default function ThresholdSettingsPanel({
           <div className="threshold-foot">
             <span className="hint">
               Shared by every dashboard user
-              {settings.updated_by
-                ? ` · last set by ${settings.updated_by} ${fmtAgo(settings.updated_at)}`
-                : ''}
+              {settings.updated_by ? ` · last set by ${settings.updated_by} ${fmtAgo(settings.updated_at)}` : ''}
             </span>
             {isAdmin ? (
               <span className="threshold-actions">

@@ -110,10 +110,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <button
-        className="skip-link"
-        onClick={() => document.getElementById('main-content')?.focus()}
-      >
+      <button className="skip-link" onClick={() => document.getElementById('main-content')?.focus()}>
         Skip to content
       </button>
       <header className="topbar">
@@ -156,7 +153,9 @@ export default function App() {
                   Settings
                 </a>
               )}
-              <button type="button" onClick={logout}>Log out</button>
+              <button type="button" onClick={logout}>
+                Log out
+              </button>
             </div>
           </details>
         </div>
@@ -171,11 +170,7 @@ export default function App() {
         ) : route.view === 'agents' ? (
           <Agents onAuthError={onAuthError} />
         ) : route.view === 'settings' ? (
-          <Settings
-            tab={route.tab}
-            isAdmin={user.role === 'admin'}
-            onAuthError={onAuthError}
-          />
+          <Settings tab={route.tab} isAdmin={user.role === 'admin'} onAuthError={onAuthError} />
         ) : (
           <Paths onAuthError={onAuthError} />
         )}
