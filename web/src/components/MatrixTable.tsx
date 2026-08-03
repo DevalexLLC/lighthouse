@@ -38,24 +38,35 @@ function Cell({ cell, thresholds }: { cell: MatrixCell; thresholds: ThresholdSet
     )
     .join(', ')
   const hasLatency = cell.status === 'ok' || cell.status === 'degraded'
+  // Compact labels so a full mesh fits the Overview card without scroll;
+  // the title/aria keep the long form.
   const checks =
     cell.status === 'stale'
-      ? 'No recent data'
+      ? 'No data'
       : cell.status === 'ok'
-        ? `${total}/${total} checks healthy`
-        : `${failed}/${total} checks failed`
+        ? `${total}/${total} healthy`
+        : `${failed}/${total} failed`
   // The API intentionally reports the best working latency and the worst
   // probe loss. Label that fold explicitly so mixed checks never read as a
   // single direction simultaneously succeeding and losing every packet.
   const worstLoss = cell.loss_pct != null && cell.loss_pct > 0
-    ? ` · worst probe ${cell.loss_pct.toFixed(0)}% loss`
+    ? ` · worst ${cell.loss_pct.toFixed(0)}% loss`
+    : ''
+  const checksLong =
+    cell.status === 'stale'
+      ? 'No recent data'
+      : cell.status === 'ok'
+        ? `${total} of ${total} checks healthy`
+        : `${failed} of ${total} checks failed`
+  const worstLossLong = cell.loss_pct != null && cell.loss_pct > 0
+    ? `, worst probe ${cell.loss_pct.toFixed(0)}% loss`
     : ''
   return (
     <td className={'cell status-' + cls}>
       <a
         href={`#/pair/${encodeURIComponent(cell.src)}/${encodeURIComponent(cell.dst)}`}
         title={`${cell.src} → ${cell.dst} · ${CLASS_LABEL[cls]} · ${detail}`}
-        aria-label={`${cell.src} to ${cell.dst}: ${CLASS_LABEL[cls]}. ${checks}${worstLoss}. ${detail}`}
+        aria-label={`${cell.src} to ${cell.dst}: ${CLASS_LABEL[cls]}. ${checksLong}${worstLossLong}. ${detail}`}
       >
         <span className="cell-status">
           <span className={'dot swatch status-' + cls} />

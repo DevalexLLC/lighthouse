@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { MAP_DOTS, MAP_VIEW_H, MAP_VIEW_W } from '../assets/mapGeo'
 import { fmtLatency } from '../format'
 import { projectMap } from '../geo'
@@ -26,6 +26,7 @@ interface SiteStats {
   bestLatencyUs: number | null
   directions: number // configured directions (cells) touching this site
   dirCounts: Record<Severity, number>
+  peers: string[] // the other end of each monitored pair, for pair links
 }
 
 function newStats(): SiteStats {
@@ -34,6 +35,7 @@ function newStats(): SiteStats {
     bestLatencyUs: null,
     directions: 0,
     dirCounts: { ok: 0, warn: 0, crit: 0, down: 0, stale: 0 },
+    peers: [],
   }
 }
 
@@ -48,6 +50,19 @@ export default function WorldMap({
 }) {
   const [pinned, setPinned] = useState<string | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
+  // The info card is interactive (pair links), so leaving a bubble clears
+  // the hover on a short delay — long enough to cross onto the card, which
+  // cancels the clear. Pinning holds the card open regardless.
+  const hoverClear = useRef<number | undefined>(undefined)
+  const cancelHoverClear = () => window.clearTimeout(hoverClear.current)
+  const scheduleHoverClear = () => {
+    cancelHoverClear()
+    hoverClear.current = window.setTimeout(() => setHovered(null), 140)
+  }
+  const hoverSite = (name: string) => {
+    cancelHoverClear()
+    setHovered(name)
+  }
 
   const { placed, unplaced, siteSeverity, siteStats } = useMemo(() => {
     const placed = sites.filter((s) => s.latitude != null && s.longitude != null)
@@ -91,16 +106,21 @@ export default function WorldMap({
         .filter((cell) => cell.status === 'ok' || cell.status === 'degraded')
         .map((cell) => cell.latency_us)
         .filter((latency): latency is number => latency != null)
-      for (const name of [x, y]) {
+      for (const [name, peer] of [
+        [x, y],
+        [y, x],
+      ]) {
         const stats = siteStats.get(name)
         if (!stats) continue
         stats.degree++
+        stats.peers.push(peer)
         if (liveLatencies.length > 0) {
           const best = Math.min(...liveLatencies)
           stats.bestLatencyUs = stats.bestLatencyUs == null ? best : Math.min(stats.bestLatencyUs, best)
         }
       }
     }
+    for (const stats of siteStats.values()) stats.peers.sort()
     return { placed, unplaced, siteSeverity, siteStats }
   }, [sites, cells, thresholds])
 
@@ -189,10 +209,10 @@ export default function WorldMap({
                 aria-pressed={pinned === s.name}
                 aria-label={`${title}. Select to keep the site details open.`}
                 onClick={() => togglePin(s.name)}
-                onMouseEnter={() => setHovered(s.name)}
-                onMouseLeave={() => setHovered(null)}
-                onFocus={() => setHovered(s.name)}
-                onBlur={() => setHovered(null)}
+                onMouseEnter={() => hoverSite(s.name)}
+                onMouseLeave={scheduleHoverClear}
+                onFocus={() => hoverSite(s.name)}
+                onBlur={scheduleHoverClear}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
@@ -220,6 +240,8 @@ export default function WorldMap({
               top: `${(shownPoint.y / MAP_VIEW_H) * 100}%`,
             }}
             role="status"
+            onMouseEnter={cancelHoverClear}
+            onMouseLeave={scheduleHoverClear}
           >
             <div className="map-tip-head">
               <b>{shownSite.name.toUpperCase()}</b>
@@ -252,6 +274,20 @@ export default function WorldMap({
               {shownStats.dirCounts.ok} of {shownStats.directions}{' '}
               {shownStats.directions === 1 ? 'direction' : 'directions'} healthy
             </div>
+            {shownStats.peers.length > 0 && (
+              <div className="map-tip-links">
+                {shownStats.peers.map((peer) => (
+                  <a
+                    key={peer}
+                    href={`#/pair/${encodeURIComponent(shownSite.name)}/${encodeURIComponent(peer)}`}
+                    aria-label={`Open pair detail for ${shownSite.name} and ${peer}`}
+                  >
+                    {shownSite.name} ⇄ {peer}
+                    <span className="map-tip-link-arrow" aria-hidden="true">↗</span>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

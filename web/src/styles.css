@@ -462,14 +462,14 @@ button.linklike:hover {
 
 table.matrix {
   border-collapse: separate;
-  border-spacing: 3px;
+  border-spacing: 2px;
   margin: 0 auto;
 }
 
 table.matrix th {
-  padding: 0.5rem 0.75rem;
+  padding: 0.3rem 0.45rem;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.76rem;
   color: var(--ink-2);
 }
 
@@ -499,7 +499,7 @@ table.matrix th.corner {
 }
 
 table.matrix td {
-  min-width: 8rem;
+  min-width: 5.5rem;
   border-radius: var(--radius);
   text-align: center;
 }
@@ -514,8 +514,8 @@ table.matrix td.diag {
 table.matrix td.empty {
   color: var(--ink-3);
   background: var(--surface-2);
-  padding: 0.9rem 0.75rem;
-  font-size: 0.8rem;
+  padding: 0.5rem 0.45rem;
+  font-size: 0.72rem;
 }
 
 table.matrix td.cell {
@@ -525,8 +525,8 @@ table.matrix td.cell {
 table.matrix td.cell > a {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.55rem 0.65rem 0.6rem;
+  gap: 0.1rem;
+  padding: 0.35rem 0.45rem 0.4rem;
   color: var(--ink);
   text-decoration: none;
   border-radius: var(--radius);
@@ -541,14 +541,14 @@ table.matrix td.cell > a:hover {
 .cell-value {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 0.98rem;
+  font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.25;
 }
 
 .cell-sub {
-  max-width: 15rem;
-  font-size: 0.72rem;
+  max-width: 11rem;
+  font-size: 0.62rem;
   line-height: 1.35;
   color: var(--ink-2);
 }
@@ -557,9 +557,9 @@ table.matrix td.cell > a:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
   color: var(--ink-2);
-  font-size: 0.68rem;
+  font-size: 0.6rem;
   font-weight: 650;
 }
 
@@ -1465,7 +1465,8 @@ ol.hops li {
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
   font-size: 0.78rem;
   line-height: 1.45;
-  pointer-events: none;
+  /* Interactive — it carries pair links; hover persistence is handled by
+     the delayed-clear logic in WorldMap.tsx. */
   transform: translate(18px, -50%);
 }
 
@@ -1543,6 +1544,42 @@ ol.hops li {
   margin-top: 0.3rem;
   color: var(--ink-2);
   font-size: 0.7rem;
+}
+
+.map-tip-links {
+  display: flex;
+  flex-direction: column;
+  max-height: 8.5rem;
+  margin-top: 0.45rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.map-tip-links a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.18rem 0.1rem;
+  border-radius: calc(var(--radius) - 4px);
+  color: var(--accent);
+  font-size: 0.73rem;
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.map-tip-links a:hover,
+.map-tip-links a:focus-visible {
+  background: var(--surface-2);
+}
+
+.map-tip-link-arrow {
+  color: var(--ink-3);
+}
+
+.map-tip-links a:hover .map-tip-link-arrow {
+  color: var(--accent);
 }
 
 .map-empty {
