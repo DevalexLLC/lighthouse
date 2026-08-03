@@ -5,7 +5,7 @@
    uppercase micro-type. */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   --bg: #f7f6f2;
   --surface: #fcfcfb;
@@ -48,31 +48,35 @@
   --radius-lg: 10px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131412;
-    --surface: #1b1c1a;
-    --surface-2: #232421;
-    --border: #30312d;
-    --border-strong: #45463f;
-    --ink: #f2f1ec;
-    --ink-2: #b9b8ae;
-    --ink-3: #aaa99f;
-    --accent: #62a8ff;
-    --accent-ink: #071019;
-    --focus: #62a8ff;
+/* The resolved scheme is stamped on <html> by public/theme-init.js before
+   first paint and kept current by src/theme.ts (manual toggle + OS changes
+   in system mode). Exactly one dark token block — never reintroduce a
+   parallel prefers-color-scheme copy to drift out of lockstep. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
 
-    --series-a: #3987e5;
+  --bg: #131412;
+  --surface: #1b1c1a;
+  --surface-2: #232421;
+  --border: #30312d;
+  --border-strong: #45463f;
+  --ink: #f2f1ec;
+  --ink-2: #b9b8ae;
+  --ink-3: #aaa99f;
+  --accent: #62a8ff;
+  --accent-ink: #071019;
+  --focus: #62a8ff;
 
-    --status-degraded: #ffc247;
-    --status-down: #ff6b72;
-    --status-crit: #f0692e;
+  --series-a: #3987e5;
 
-    --status-ok-bg: color-mix(in srgb, #0ca30c 16%, var(--surface));
-    --status-degraded-bg: color-mix(in srgb, #fab219 14%, var(--surface));
-    --status-down-bg: color-mix(in srgb, #d03b3b 17%, var(--surface));
-    --status-stale-bg: var(--surface-2);
-  }
+  --status-degraded: #ffc247;
+  --status-down: #ff6b72;
+  --status-crit: #f0692e;
+
+  --status-ok-bg: color-mix(in srgb, #0ca30c 16%, var(--surface));
+  --status-degraded-bg: color-mix(in srgb, #fab219 14%, var(--surface));
+  --status-down-bg: color-mix(in srgb, #d03b3b 17%, var(--surface));
+  --status-stale-bg: var(--surface-2);
 }
 
 /* JetBrains Mono, vendored in web/public/fonts (OFL — license alongside).
@@ -1825,6 +1829,35 @@ ol.hops li {
 
 .topbar-right {
   gap: 0.8rem;
+}
+
+.theme-toggle {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  cursor: pointer;
+  place-items: center;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.theme-toggle-icon {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 .user-menu {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, apiGet, apiPost, setCsrfToken } from './api'
 import type { LoginResponse, User } from './types'
+import ThemeToggle from './components/ThemeToggle'
 import Agents from './views/Agents'
 import Login from './views/Login'
 import Matrix from './views/Matrix'
@@ -141,6 +142,7 @@ export default function App() {
           </a>
         </nav>
         <div className="topbar-right">
+          <ThemeToggle />
           <details className={'user-menu' + (route.view === 'settings' ? ' user-menu-current' : '')}>
             <summary aria-label={`Open user menu for ${user.username}`}>
               <svg className="user-menu-icon" viewBox="0 0 24 24" aria-hidden="true">

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type uPlot from 'uplot'
 import { apiGet } from '../api'
 import Chart from '../components/Chart'
+import { useTheme } from '../theme'
 import {
   fmtAgo,
   fmtLatency,
@@ -32,10 +33,6 @@ type Metric = 'latency' | 'loss'
 const COLORS = {
   light: { aToB: '#2a78d6', bToA: '#d55181', grid: '#e0dfd9', axis: '#55544d' },
   dark: { aToB: '#3987e5', bToA: '#d55181', grid: '#30312d', axis: '#b9b8ae' },
-}
-
-function palette() {
-  return matchMedia('(prefers-color-scheme: dark)').matches ? COLORS.dark : COLORS.light
 }
 
 // withPctl must match the series list mkOptions builds for the same render:
@@ -277,6 +274,7 @@ export default function PairDetail({
 }) {
   const [win, setWin] = useState<Window>('24h')
   const [metric, setMetric] = useState<Metric>('latency')
+  const { resolved } = useTheme()
   const [pair, setPair] = useState<PairResponse | null>(null)
   const [series, setSeries] = useState<SeriesResponse | null>(null)
   const [paths, setPaths] = useState<TracerouteResponse | null>(null)
@@ -322,7 +320,7 @@ export default function PairDetail({
       latestIndex: number,
       lossCeiling: number,
     ): Omit<uPlot.Options, 'width'> => {
-      const c = palette()
+      const c = COLORS[resolved]
       const stroke = c[direction]
       const axisStyle = {
         stroke: c.axis,
@@ -364,8 +362,10 @@ export default function PairDetail({
         plugins: [latestLegendPlugin(latestIndex)],
       }
     }
-    // Rebuild when metric changes (series shape differs).
-  }, [metric])
+    // Rebuild when the metric changes (series shape differs) or the theme
+    // flips (new options identity makes Chart recreate uPlot with the right
+    // palette — this is what keeps charts recoloring live on toggle).
+  }, [metric, resolved])
 
   if (error && !series) return <div className="state-panel state-error"><h1>Pair detail unavailable</h1><p>{error}</p></div>
   if (!series || !pair) return <div className="state-panel" role="status"><span className="state-spinner" />Loading pair detail…</div>
