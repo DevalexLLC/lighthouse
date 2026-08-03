@@ -1327,164 +1327,34 @@ ol.hops li {
   }
 }
 
-/* ---- shared Natural Earth operations map ---- */
+/* ---- shared dot-matrix operations map ---- */
 
 .worldmap-shell {
-  --map-healthy: #4fd6e8;
-  --map-degraded: #f0a832;
-  --map-down: #f2564b;
-  --map-stale: #718087;
   position: relative;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, #101416);
-  border-radius: var(--radius);
-  background: #080a0b;
 }
 
 .worldmap {
   display: block;
   width: 100%;
   height: auto;
-  background: #080a0b;
 }
 
-.map-ocean {
-  fill: #080a0b;
-}
-
-.map-sphere {
-  fill: #0b0e10;
-  stroke: #263036;
-  stroke-width: 1;
-}
-
-.map-graticule {
-  fill: none;
-  stroke: #202b30;
-  stroke-width: 0.65;
-  pointer-events: none;
-}
-
-.map-land {
-  fill: #182024;
-  stroke: #35434a;
-  stroke-width: 0.55;
-  pointer-events: none;
-}
-
-/* Wide invisible twin of each line: the click/hover target. */
-.map-hit {
-  fill: none;
-  stroke: transparent;
-  stroke-width: 10;
-}
-
-/* Invisible twin of each site dot, for the same reason: the visible dot
-   alone is a ~6px target at small viewports. */
-.map-site-hit {
+.map-bg {
   fill: transparent;
 }
 
-.map-line {
+.map-dotgrid {
   fill: none;
-  stroke-width: 1.4;
+  stroke: var(--map-dot);
+  stroke-width: 2.6;
   stroke-linecap: round;
-  transition: opacity 140ms ease, stroke-width 140ms ease;
-}
-
-.map-line.sev-ok {
-  stroke: var(--map-healthy);
-  opacity: 0.36;
-}
-
-.map-line.sev-warn {
-  stroke: var(--map-degraded);
-  stroke-width: 1.7;
-  opacity: 0.58;
-}
-
-.map-line.sev-crit {
-  stroke: var(--map-degraded);
-  stroke-width: 2;
-  opacity: 0.78;
-}
-
-.map-line.sev-down {
-  stroke: var(--map-down);
-  stroke-width: 1.8;
-  stroke-dasharray: 3 6;
-  opacity: 0.72;
-}
-
-.map-line.sev-stale {
-  stroke: var(--map-stale);
-  stroke-dasharray: 2 6;
-  opacity: 0.46;
-}
-
-.map-seam {
-  pointer-events: none;
-  stroke: #080a0b;
-  stroke-width: 1;
-}
-
-.map-seam.sev-ok { fill: var(--map-healthy); }
-.map-seam.sev-warn,
-.map-seam.sev-crit { fill: var(--map-degraded); }
-.map-seam.sev-down { fill: var(--map-down); }
-.map-seam.sev-stale { fill: var(--map-stale); }
-
-/* The operations map's sparse signal pulses ride the great-circle carrier. There
-   is one per working direction; down and stale directions never animate. */
-.map-flow-signals {
   pointer-events: none;
 }
 
-.map-flow-pulse {
-  fill: none;
-  stroke-width: 2.8;
-  stroke-linecap: round;
-  stroke-dasharray: 3 300;
-  animation: map-signal-flow 6s linear infinite;
-}
-
-.map-flow-pulse.return {
-  animation-direction: reverse;
-}
-
-.map-flow-pulse.sev-ok { stroke: var(--map-healthy); }
-.map-flow-pulse.sev-warn,
-.map-flow-pulse.sev-crit { stroke: var(--map-degraded); }
-
-@keyframes map-signal-flow {
-  to {
-    stroke-dashoffset: -303;
-  }
-}
-
-.worldmap a:hover .map-line,
-.worldmap a:focus-visible .map-line {
-  opacity: 1;
-  stroke-width: 2.4;
-}
-
-.worldmap a:focus-visible .map-line {
-  outline: none;
-  stroke: var(--focus);
-}
-
-/* Pinning a site foregrounds its links and fades the rest. Photon opacity
-   is keyframe-driven, so fading loses to the animation — hide instead. */
-.worldmap.has-pin .map-line:not(.pinned) {
-  opacity: 0.15;
-}
-
-.worldmap.has-pin .map-flow-signals:not(.pinned) {
-  display: none;
-}
-
-.worldmap.has-pin .map-site:not(.pinned) .map-label {
-  opacity: 0.24;
+/* Invisible twin of each bubble: the visible mark alone can be a small
+   target at phone viewports. */
+.map-site-hit {
+  fill: transparent;
 }
 
 .map-site {
@@ -1495,90 +1365,70 @@ ol.hops li {
   outline: none;
 }
 
-.map-site:focus-visible .map-dot {
+.map-site:focus-visible .map-bubble {
   stroke: var(--focus);
   stroke-width: 2;
 }
 
-.map-dot {
-  fill: #080a0b;
+/* Healthy sites wear the template's translucent accent (the map's own
+   operations palette, as the carrier cyan did before); anything wrong takes
+   the status ramp so alarms are the only thing that pops. warn and crit are
+   both publicly "Degraded" — crit is a stronger intensity, never a new
+   state. */
+.map-site {
+  --map-bubble-color: var(--status-stale);
+}
+
+.map-site.sev-ok {
+  --map-bubble-color: var(--accent);
+}
+
+.map-site.sev-warn,
+.map-site.sev-crit {
+  --map-bubble-color: var(--status-degraded);
+}
+
+.map-site.sev-down {
+  --map-bubble-color: var(--status-down);
+}
+
+.map-bubble {
+  fill: color-mix(in srgb, var(--map-bubble-color) 18%, transparent);
+  stroke: color-mix(in srgb, var(--map-bubble-color) 55%, transparent);
+  stroke-width: 1;
+  transition: fill 140ms ease;
+}
+
+.map-site.sev-crit .map-bubble {
+  fill: color-mix(in srgb, var(--map-bubble-color) 32%, transparent);
+  stroke: color-mix(in srgb, var(--map-bubble-color) 85%, transparent);
   stroke-width: 1.5;
 }
 
-.map-site.sev-ok .map-dot { stroke: var(--map-healthy); }
-.map-site.sev-warn .map-dot,
-.map-site.sev-crit .map-dot { fill: var(--map-degraded); stroke: var(--map-degraded); }
-.map-site.sev-down .map-dot { fill: var(--map-down); stroke: var(--map-down); }
-.map-site.sev-stale .map-dot { stroke: var(--map-stale); }
-
-.map-halo {
-  fill: none;
-  stroke-width: 1.5;
-  opacity: 0;
+.map-site:hover .map-bubble,
+.map-site.pinned .map-bubble {
+  fill: color-mix(in srgb, var(--map-bubble-color) 30%, transparent);
 }
 
-/* Crit/down dots pulse; SVG r is animatable in current engines. */
-.map-site.sev-crit .map-halo,
-.map-site.sev-down .map-halo {
-  animation: map-pulse 1.8s ease-out infinite;
-}
-
-.map-site.sev-crit .map-halo { stroke: var(--map-degraded); }
-.map-site.sev-down .map-halo { stroke: var(--map-down); }
-
-@keyframes map-pulse {
-  0% {
-    r: 3;
-    opacity: 0.7;
-  }
-  100% {
-    r: 10;
-    opacity: 0;
-  }
-}
-
-.map-label {
-  font-family: 'JetBrains Mono', var(--mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.09em;
-  fill: #9eacb2;
-  paint-order: stroke;
-  stroke: #080a0b;
-  stroke-width: 3px;
-  pointer-events: none;
-}
-
-.map-site.pinned .map-label {
-  fill: #eef6f8;
-  font-weight: 700;
+.map-bubble-core {
+  fill: var(--map-bubble-color);
 }
 
 .map-selection {
   fill: none;
-  stroke: #eef6f8;
-  stroke-width: 1;
-  opacity: 0.8;
+  stroke: var(--ink);
+  stroke-width: 1.2;
+  opacity: 0.55;
 }
 
 .map-legend {
-  position: absolute;
-  right: 14px;
-  bottom: 12px;
-  left: 14px;
   display: flex;
   align-items: center;
-  gap: 1rem;
-  width: fit-content;
-  max-width: calc(100% - 28px);
-  padding: 0.5rem 0.65rem;
-  border: 1px solid #293238;
-  color: #a9b5ba;
-  background: rgb(8 10 11 / 0.88);
-  font-family: 'JetBrains Mono', var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  gap: 0.4rem 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+  color: var(--ink-3);
+  font-size: 0.72rem;
 }
 
 .map-legend .legend-item {
@@ -1586,56 +1436,113 @@ ol.hops li {
   font-size: inherit;
 }
 
-.map-legend-rule {
+.map-legend-dot {
   display: inline-block;
-  width: 16px;
-  height: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: -1px;
 }
 
-.map-legend-rule.sev-ok { background: var(--map-healthy); }
-.map-legend-rule.sev-warn { background: var(--map-degraded); }
-.map-legend-rule.sev-down { background: var(--map-down); }
-.map-legend-rule.sev-stale { background: var(--map-stale); }
-.map-legend-hint { color: #87969d; }
+.map-legend-dot.sev-ok { background: var(--accent); }
+.map-legend-dot.sev-warn { background: var(--status-degraded); }
+.map-legend-dot.sev-down { background: var(--status-down); }
+.map-legend-dot.sev-stale { background: var(--status-stale); }
+.map-legend-hint { margin-left: auto; }
 
-.map-seam-note {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  padding: 0.3rem 0.45rem;
-  border: 1px solid #293238;
-  color: #a9b5ba;
-  background: rgb(8 10 11 / 0.88);
-  font-family: 'JetBrains Mono', var(--mono);
-  font-size: 0.64rem;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-}
-
+/* Site info card, template style: name + status, headline value, severity
+   breakdown bar. Position tracks the bubble in map %-space. */
 .map-tip {
   position: absolute;
   z-index: 3;
-  min-width: max-content;
-  padding: 0.48rem 0.6rem;
-  border: 1px solid #354047;
-  color: #d7e0e4;
-  background: rgb(16 19 21 / 0.96);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
-  font-family: 'JetBrains Mono', var(--mono);
-  font-size: 0.7rem;
-  line-height: 1.55;
-  letter-spacing: 0.035em;
+  min-width: 13rem;
+  max-width: 17rem;
+  padding: 0.7rem 0.85rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
+  font-size: 0.78rem;
+  line-height: 1.45;
   pointer-events: none;
-  transform: translate(14px, -50%);
-}
-
-.map-tip b {
-  color: var(--map-healthy);
-  font-weight: 600;
+  transform: translate(18px, -50%);
 }
 
 .map-tip-left {
-  transform: translate(calc(-100% - 14px), -50%);
+  transform: translate(calc(-100% - 18px), -50%);
+}
+
+.map-tip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.map-tip-head b {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.map-tip-pill {
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.map-tip-pill.sev-ok { color: var(--status-ok); background: var(--status-ok-bg); }
+.map-tip-pill.sev-warn,
+.map-tip-pill.sev-crit { color: var(--status-degraded); background: var(--status-degraded-bg); }
+.map-tip-pill.sev-down { color: var(--status-down); background: var(--status-down-bg); }
+.map-tip-pill.sev-stale { color: var(--ink-3); background: var(--status-stale-bg); }
+
+.map-tip-sub {
+  color: var(--ink-3);
+  font-size: 0.72rem;
+}
+
+.map-tip-value {
+  margin-top: 0.35rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-tip-value small {
+  color: var(--ink-3);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.map-tip-bar {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  margin-top: 0.45rem;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.map-tip-bar-seg {
+  min-width: 3px;
+  border-radius: 3px;
+}
+
+.map-tip-bar-seg.sev-ok { background: var(--accent); }
+.map-tip-bar-seg.sev-warn,
+.map-tip-bar-seg.sev-crit { background: var(--status-degraded); }
+.map-tip-bar-seg.sev-down { background: var(--status-down); }
+.map-tip-bar-seg.sev-stale { background: var(--status-stale); }
+
+.map-tip-caption {
+  margin-top: 0.3rem;
+  color: var(--ink-2);
+  font-size: 0.7rem;
 }
 
 .map-empty {
@@ -1657,23 +1564,17 @@ ol.hops li {
 .swatch.sev-stale { background: var(--status-stale); }
 
 @media (prefers-reduced-motion: reduce) {
-  .map-halo {
-    animation: none;
-  }
-  .map-flow-signals {
-    display: none;
+  .map-bubble {
+    transition: none;
   }
 }
 
 @media (max-width: 640px) {
-  .map-legend {
-    gap: 0.5rem 0.8rem;
-    flex-wrap: wrap;
-  }
   .map-legend-hint {
     display: none;
   }
 }
+
 
 /* ---- threshold settings panel ---- */
 
@@ -2520,10 +2421,8 @@ ol.hops li {
 
 @media (max-width: 640px) {
   .stat-grid { grid-template-columns: 1fr; }
-  .stat-card { min-height: 108px; }
   .overview-grid { display: block; }
   .overview-grid > .card { margin-bottom: 1rem; }
-  .map-seam-note { display: none; }
   .progressive-footer { align-items: stretch; flex-direction: column; }
 }
 

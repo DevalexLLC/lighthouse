@@ -1,6 +1,6 @@
-// Generates web/src/assets/mapGeo.ts: the operations map geometry (sphere
-// outline, 10° graticule, country shapes) pre-projected through Natural
-// Earth I into a 1080×600 frame. One-time dev
+// Generates web/src/assets/mapGeo.ts: the dot-matrix operations map — the
+// landmass sampled as a hex-offset grid of dots, pre-projected through
+// Natural Earth I into a 1080×600 frame. One-time dev
 // tooling (same category as `npm ci` / `make vendor`) — the OUTPUT is
 // committed and release builds never run this or fetch anything.
 //
@@ -17,8 +17,9 @@
 // polynomial below is the one d3-geo uses, and the fit constants (MAP_K,
 // MAP_TX, MAP_TY) are solved from the projected sphere bounds exactly the way
 // d3.fitExtent does. web/src/geo.ts carries the SAME raw formula and applies
-// the emitted constants, so runtime nodes/arcs and this baked geometry can
-// never drift. Rings are Douglas–Peucker simplified in projected space.
+// the emitted constants, so runtime site positions and this baked geometry
+// can never drift. Land rings are Douglas–Peucker simplified in projected
+// space before the grid is point-in-polygon tested against them.
 
 import { readFileSync } from 'node:fs'
 
@@ -30,6 +31,7 @@ const EXTENT = [
 ]
 const EPSILON = 0.35 // Douglas–Peucker tolerance, viewBox px
 const MIN_RING_AREA = 2 // drop islands smaller than this many px²
+const DOT_STEP = 7 // dot pitch in viewBox px; alternate rows offset by half
 
 // Natural Earth I raw projection (Šavrič et al.), radians in, unit sphere
 // out, y positive north. Identical to d3-geo's naturalEarth1Raw — keep in
@@ -264,47 +266,9 @@ function ringArea(points) {
   return Math.abs(area / 2)
 }
 
-// ---- Path emit ----
+// ---- Land rings (projected + simplified, for point-in-polygon tests) ----
 
-const fmt = (n) => {
-  const s = n.toFixed(1)
-  return s.endsWith('.0') ? s.slice(0, -2) : s
-}
-
-function polyline(pts, close) {
-  let d = ''
-  let prev = null
-  for (const p of pts) {
-    const key = fmt(p[0]) + ',' + fmt(p[1])
-    if (key === prev) continue
-    d += (d === '' ? 'M' : 'L') + key
-    prev = key
-  }
-  if (d === '' || d.indexOf('L') === -1) return ''
-  return close ? d + 'Z' : d
-}
-
-// Sphere: one closed outline.
-const spherePath = polyline(douglasPeucker(sphereOutline().map(([lon, lat]) => project(lon, lat)), 0.1), true)
-
-// Graticule: meridians and parallels every 10°, matching d3.geoGraticule10
-// (meridians span ±80° latitude; the ±90° edges belong to the sphere).
-let graticulePath = ''
-for (let lon = -180; lon <= 180; lon += 10) {
-  const pts = []
-  for (let lat = -80; lat <= 80; lat += 2.5) pts.push(project(lon, lat))
-  graticulePath += polyline(douglasPeucker(pts, 0.1), false)
-}
-for (let lat = -80; lat <= 80; lat += 10) {
-  const pts = []
-  for (let lon = -180; lon <= 180; lon += 2.5) pts.push(project(lon, lat))
-  graticulePath += polyline(douglasPeucker(pts, 0.1), false)
-}
-
-// Countries: every polygon ring (110m country borders read fine without
-// holes at this scale, but keep them — interior lakes are dropped by the
-// area floor anyway).
-let countriesPath = ''
+const rings = [] // { pts: [[x,y],…], minX, maxX, minY, maxY }
 let ringCount = 0
 for (const geom of topo.objects.countries.geometries) {
   if (!geom) continue
@@ -316,33 +280,87 @@ for (const geom of topo.objects.countries.geometries) {
         let pts = piece.map(([lon, lat]) => project(lon, lat))
         pts = douglasPeucker(pts, EPSILON)
         if (pts.length < 4 || ringArea(pts) < MIN_RING_AREA) continue
-        const d = polyline(pts, true)
-        if (d === '') continue
-        countriesPath += d
+        let rMinX = Infinity
+        let rMaxX = -Infinity
+        let rMinY = Infinity
+        let rMaxY = -Infinity
+        for (const [x, y] of pts) {
+          if (x < rMinX) rMinX = x
+          if (x > rMaxX) rMaxX = x
+          if (y < rMinY) rMinY = y
+          if (y > rMaxY) rMaxY = y
+        }
+        rings.push({ pts, minX: rMinX, maxX: rMaxX, minY: rMinY, maxY: rMaxY })
         ringCount++
       }
     }
   }
 }
 
+// ---- Dot grid emit ----
+//
+// Even-odd crossing count over ALL rings at once: countries tile the land
+// without overlapping, so a land point crosses exactly one outer ring an odd
+// number of times, and interior lake rings add an even count that correctly
+// excludes their dots. Bounding boxes keep the test cheap.
+
+function crossings(x, y, pts) {
+  let hits = 0
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i]
+    const [xj, yj] = pts[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hits++
+  }
+  return hits
+}
+
+function onLand(x, y) {
+  let total = 0
+  for (const r of rings) {
+    if (x < r.minX || x > r.maxX || y < r.minY || y > r.maxY) continue
+    total += crossings(x, y, r.pts)
+  }
+  return total % 2 === 1
+}
+
+const fmt = (n) => {
+  const s = n.toFixed(1)
+  return s.endsWith('.0') ? s.slice(0, -2) : s
+}
+
+const dots = []
+let row = 0
+for (let y = EXTENT[0][1]; y <= EXTENT[1][1]; y += DOT_STEP, row++) {
+  const offset = row % 2 === 1 ? DOT_STEP / 2 : 0
+  for (let x = EXTENT[0][0] + offset; x <= EXTENT[1][0]; x += DOT_STEP) {
+    if (onLand(x, y)) dots.push(fmt(x), fmt(y))
+  }
+}
+
 process.stdout.write(`// Generated by web/tools/build-map-geo.mjs — do not hand-edit.
 // Source: world-atlas countries-110m.json (Natural Earth 1:110m, public
 // domain), Natural Earth I projection fit to [[14,24],[1066,576]] in a
-// ${VIEW_W}×${VIEW_H} frame, Douglas–Peucker simplified. ${ringCount} country rings.
+// ${VIEW_W}×${VIEW_H} frame. Landmass sampled as a ${DOT_STEP}px hex-offset dot grid
+// (${dots.length / 2} dots over ${ringCount} land rings).
 // MAP_K/MAP_TX/MAP_TY are the solved fitExtent constants — web/src/geo.ts
-// applies them to the same raw projection for nodes and great-circle arcs.
+// applies them to the same raw projection for site positions.
 export const MAP_VIEW_W = ${VIEW_W}
 export const MAP_VIEW_H = ${VIEW_H}
 export const MAP_K = ${K}
 export const MAP_TX = ${TX}
 export const MAP_TY = ${TY}
-export const MAP_SPHERE_PATH =
-  '${spherePath}'
-export const MAP_GRATICULE_PATH =
-  '${graticulePath}'
-export const MAP_COUNTRIES_PATH =
-  '${countriesPath}'
+// Flat [x0,y0, x1,y1, …] pairs in viewBox coordinates.
+export const MAP_DOTS: number[] = [
+${wrapDots(dots)}
+]
 `)
-console.error(
-  `map geo: ${ringCount} rings; sphere ${spherePath.length} B, graticule ${graticulePath.length} B, countries ${countriesPath.length} B`,
-)
+
+function wrapDots(list) {
+  const lines = []
+  for (let i = 0; i < list.length; i += 20) {
+    lines.push('  ' + list.slice(i, i + 20).join(', ') + ',')
+  }
+  return lines.join('\n')
+}
+
+console.error(`map geo: ${ringCount} rings, ${dots.length / 2} dots at ${DOT_STEP}px pitch`)
