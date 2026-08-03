@@ -80,6 +80,59 @@ docker run --rm -v ./agent.yaml:/etc/lighthouse/agent.yaml:ro \
 docker restart lighthouse-agent
 ```
 
+## Firewall requirements
+
+### Control plane host
+
+| Direction | Proto/port | Peer | Purpose |
+|---|---|---|---|
+| Inbound | TCP 443 | operator browsers | dashboard HTTPS (SNI = dashboard hostname) |
+| Inbound | TCP 443 | every agent | enrollment, config stream, result pushes, cert renewal — gRPC over mTLS (SNI = `LIGHTHOUSE_GRPC_SNI`) |
+
+That single port carries both traffic classes; the proxy splits them by TLS
+SNI without terminating TLS. Nothing else is host-exposed — the server's
+internal listeners (8443 gRPC, 8080 dashboard) and TimescaleDB (5432) exist
+only on the compose network and need no firewall rules. The control plane
+initiates no outbound connections.
+
+The agent config stream is a long-lived TLS connection that can sit idle;
+keepalive pings flow about once a minute in each direction. Stateful
+middleboxes between agents and the control plane must allow long-lived
+connections and not reap flows idle for under ~2 minutes, or agents will
+reconnect-loop (visible as `config stream failed` churn in agent logs).
+
+### Agent hosts
+
+Outbound:
+
+| Proto/port | Peer | Purpose |
+|---|---|---|
+| TCP 443 | control plane | everything agent↔server (single port, as above) |
+| ICMP echo-request | peer agents / targets | echo (rtt/loss/jitter) probes; replies return as echo-reply |
+| TCP <target port> | peer agents / targets | tcp and tls probes (the port is per-probe config; mesh templates name it explicitly) |
+| TCP 80/443/custom | targets | http probes (whatever the configured URL uses) |
+| UDP 53 | target / `dns.resolver` override | dns probes (UDP only — no TCP fallback; port 53 unless the resolver param names another) |
+| UDP 33434–33523 | peer agents / targets | traceroute probes (30 hops × 3 probes, port encodes hop/index); replies return as ICMP time-exceeded / port-unreachable |
+
+Inbound — mesh probes are symmetric, so every peer agent sends the same
+traffic at this host:
+
+| Proto/port | Purpose |
+|---|---|
+| ICMP echo-request | peers' echo probes (the kernel answers; no listener involved) |
+| TCP <mesh template ports> | peers' tcp/tls probes against this agent |
+| UDP 33434–33523 | peers' traceroutes; the kernel's ICMP **port-unreachable** reply is the destination-reached signal — a firewall that drops these inbound packets (or rate-limits/suppresses the outbound unreachable) makes every traceroute toward this site read as never arriving |
+
+ICMP time-exceeded and port/host-unreachable must be allowed back in on the
+prober side (stateful firewalls that track ICMP errors as related traffic
+handle this; a blanket inbound ICMP drop breaks echo and traceroute both —
+and note a blanket drop also kills the *reverse* direction's echo replies,
+so both directions of a pair go red, not one). IPv6 targets need the ICMPv6
+equivalents; ICMPv6 must never be blanket-dropped on v6 networks.
+
+Agent hosts accept no operator-facing connections — there is no inbound
+management port to open.
+
 ## Certificate lifecycle
 
 - Agent certs are valid 30 days; agents renew automatically at 2/3 of the
