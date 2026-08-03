@@ -242,6 +242,12 @@ export default function WorldMap({
             role="status"
             onMouseEnter={cancelHoverClear}
             onMouseLeave={scheduleHoverClear}
+            // Focus/blur bubble from the pair links, so keyboard entry
+            // cancels the pending clear exactly like mouse entry — without
+            // this, tabbing from the last bubble into the card races the
+            // 140 ms clear and the focused link can unmount mid-tab.
+            onFocus={cancelHoverClear}
+            onBlur={scheduleHoverClear}
           >
             <div className="map-tip-head">
               <b>{shownSite.name.toUpperCase()}</b>
