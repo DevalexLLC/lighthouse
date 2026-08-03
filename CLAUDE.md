@@ -59,6 +59,16 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- `docs/install.md` is the zero-to-working-system operator guide: online image
+  pulls and offline bundles, DNS/dashboard TLS/SNI proxy setup, explicit
+  production migration and CA initialization, RPM and container agents,
+  mandatory proxied-enrollment `--probe-address`, a baseline two-site mesh,
+  direct-target examples, end-to-end verification, firewall rules,
+  troubleshooting, lifecycle, upgrades, and backup scope. It uses the actual
+  dashboard-user CLI (`user add --admin`) and makes clear that probe workloads
+  are configured centrally rather than in agent YAML. `README.md` links it as
+  the production installation entry point.
+
 - M6 (packaging, rotation, air-gap hardening + ghcr publishing) — done.
   Agent cert renewal: the renewer (`internal/agent/uplink/renew.go`) fires
   at 2/3 of the LEAF's validity (no agent config knob — it can't disagree

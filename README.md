@@ -85,6 +85,13 @@ make up           # full containerized stack: proxy + server + TimescaleDB
 make down
 ```
 
+## Production installation
+
+Follow the [complete installation and user guide](docs/install.md) to deploy
+the proxy and control plane, enroll RPM or container agents, configure probe
+workloads, and verify a working multi-site system. Online image pulls and
+air-gapped release bundles are both covered.
+
 ## Status
 
 Early development. See `docs/architecture.md` for the full design.
