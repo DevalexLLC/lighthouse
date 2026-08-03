@@ -1,0 +1,54 @@
+# PR/branch gate. The offline-build job IS the M6 air-gap clause: with the
+# module proxy off and toolchain downloads disabled, a build that succeeds
+# proves vendor/, internal/pb/, and web/dist/ are complete — no build step
+# reaches the network.
+#
+# Deliberately absent (future work):
+#   - proto regen drift: buf is NOT vendored (the Makefile's `go run` branch
+#     falls back to a host binary) and plugin versions are unpinned, so a CI
+#     regen would produce false diffs. Vendor + pin buf first.
+#   - web/dist drift: `npm ci` + build nondeterminism across environments
+#     makes byte-comparing dist/ noisy; the committed dist is covered by
+#     review instead.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  offline-build:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+      GOPROXY: "off"
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          # The vendored tree is the dependency cache; a populated module
+          # cache would mask an incomplete vendor/.
+          cache: false
+      - name: Build (network disabled)
+        run: make build
+      - name: Test (network disabled)
+        run: make test
+      - name: Vet
+        run: make vet
+      - name: Working tree must stay clean
+        run: git diff --exit-code
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/server.Dockerfile
+          push: false
