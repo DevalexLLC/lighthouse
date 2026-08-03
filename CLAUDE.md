@@ -94,7 +94,21 @@ Full design + milestone plan: `docs/architecture.md`.
   modal-free), probe param fields render FROM the registry endpoint
   (bool→checkbox, enum→select) so form and server can't drift, forms follow
   the ThresholdSettings draft-null/dirty/save pattern, `button.primary` is
-  now a general style (was `.threshold-foot`-scoped).
+  now a general style (was `.threshold-foot`-scoped). Codex-review
+  follow-ups: ingest ownership is now a (probe, target) PAIR check —
+  grpcapi's `assignmentCache` builds each agent's probe→target map from
+  the same `meshexpand.BuildSnapshot` the agent receives (30 s TTL, one
+  load per agent per batch; `store.TargetAssignedToAgent` is gone) — a
+  target-only check let spooled results for a deleted/disabled probe slip
+  through whenever its target stayed assigned via another config,
+  recreating retired `series_state` and reopening an incident nothing
+  would ever close. Two guaranteed-broken configs are now rejected at
+  write time (shared `probeadmin`, so CLI + API agree): http mesh
+  templates (the prober needs `Target.Url`; mesh expansion carries only
+  address/port — the registry marks http `direct_only`, the UI hides it
+  in mesh mode) and direct probes against agent-kind targets (their rows
+  carry no address; `store.ErrInvalid` → 400, UI filters the picker to
+  external).
 
 - Template-theme refactor (2026-08-03): the whole dashboard was restyled to
   a shadcn-flavored admin look (zinc neutrals, hairline borders, indigo

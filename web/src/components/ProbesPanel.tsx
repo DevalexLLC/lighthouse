@@ -190,7 +190,10 @@ export default function ProbesPanel({
           setData(probes)
           setMeshes(meshRes.meshes.map((m) => m.name))
           setSites(sitesRes.sites.map((s) => s.name))
-          setTargets(targetsRes.targets.map((t) => t.name))
+          // Agent-kind targets are excluded: they carry no address/port/URL
+          // (mesh expansion resolves peers), so the server rejects direct
+          // probes against them.
+          setTargets(targetsRes.targets.filter((t) => t.kind === 'external').map((t) => t.name))
           setError('')
         })
         .catch((err) => {
@@ -541,7 +544,15 @@ export default function ProbesPanel({
                     className={createDraft.mode === 'mesh' ? 'active' : ''}
                     aria-pressed={createDraft.mode === 'mesh'}
                     disabled={busy}
-                    onClick={() => setCreateDraft((d) => ({ ...d, mode: 'mesh', params: {} }))}
+                    onClick={() =>
+                      setCreateDraft((d) => ({
+                        ...d,
+                        mode: 'mesh',
+                        params: {},
+                        // A direct-only type (http) cannot be a mesh template.
+                        type: registry?.types.find((t) => t.type === d.type)?.direct_only ? 'icmp' : d.type,
+                      }))
+                    }
                   >
                     Mesh
                   </button>
@@ -566,9 +577,11 @@ export default function ProbesPanel({
                       setCreateDraft((d) => ({ ...d, type: e.target.value, params: {} }))
                     }
                   >
-                    {(registry?.types ?? []).map((t) => (
-                      <option key={t.type} value={t.type}>{t.type}</option>
-                    ))}
+                    {(registry?.types ?? [])
+                      .filter((t) => !(createDraft.mode === 'mesh' && t.direct_only))
+                      .map((t) => (
+                        <option key={t.type} value={t.type}>{t.type}</option>
+                      ))}
                   </select>
                 </span>
               </label>

@@ -115,6 +115,12 @@ func (f *fakeDB) GetProbeConfig(_ context.Context, id uuid.UUID) (*store.ProbeCo
 }
 
 func (f *fakeDB) AddDirectProbe(_ context.Context, siteName, targetName string, ps store.ProbeSettings, updatedBy string) (uuid.UUID, error) {
+	// Mirror the store's rule: agent-kind targets cannot take direct probes.
+	for _, t := range f.targets {
+		if t.Name == targetName && t.Kind == "agent" {
+			return uuid.Nil, fmt.Errorf("target %q is an enrollment-managed agent target: direct probes need an external target (mesh probes cover agent peers)%w", targetName, store.ErrInvalid)
+		}
+	}
 	p := store.ProbeConfigInfo{
 		ID: uuid.New(), Site: siteName, Target: targetName, ProbeType: ps.ProbeType,
 		Interval: ps.Interval, Timeout: ps.Timeout, TrainCount: ps.TrainCount,
@@ -308,6 +314,8 @@ func TestConfigProbeValidation(t *testing.T) {
 			`"port" applies only to mesh probes`},
 		{"mesh tcp needs port", `{"mesh":"m","type":"tcp","interval_ms":10000,"timeout_ms":5000}`,
 			`"port" is required for mesh tcp probes`},
+		{"http mesh rejected", `{"mesh":"m","type":"http","interval_ms":10000,"timeout_ms":5000}`,
+			"http probes cannot be mesh templates"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -321,8 +329,19 @@ func TestConfigProbeValidation(t *testing.T) {
 		})
 	}
 
+	// A direct probe against an agent-kind target is a 400, not a 500.
+	f.targets = append(f.targets, store.TargetInfo{ID: uuid.New(), Kind: "agent", Name: "agent:peer"})
+	w := doConfig(t, h, "POST", "/api/v1/config/probes",
+		`{"site":"nyc","target":"agent:peer","type":"tcp","interval_ms":10000,"timeout_ms":5000}`, cookie, csrf)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("agent-target direct probe = %d, want 400: %s", w.Code, w.Body)
+	}
+	if msg := errBody(t, w); !strings.Contains(msg, "enrollment-managed agent target") {
+		t.Errorf("error %q must explain the agent-target rejection", msg)
+	}
+
 	// A valid create lands with the session username as updated_by.
-	w := doConfig(t, h, "POST", "/api/v1/config/probes", validDirectProbe, cookie, csrf)
+	w = doConfig(t, h, "POST", "/api/v1/config/probes", validDirectProbe, cookie, csrf)
 	if w.Code != http.StatusOK {
 		t.Fatalf("valid probe = %d: %s", w.Code, w.Body)
 	}

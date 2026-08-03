@@ -29,9 +29,9 @@ type Server struct {
 	pb.UnimplementedEnrollmentServiceServer
 	pb.UnimplementedAgentServiceServer
 
-	store     *store.Store
-	ca        *ca.CA
-	ownership ownershipCache
+	store       *store.Store
+	ca          *ca.CA
+	assignments assignmentCache
 }
 
 func New(st *store.Store, authority *ca.CA) *Server {
@@ -187,9 +187,11 @@ func (s *Server) StreamConfig(hello *pb.AgentHello, stream grpc.ServerStreamingS
 }
 
 // PushResults ingests a result batch. The agent identity comes exclusively
-// from the mTLS certificate; each result's target must be currently assigned
-// to that agent or the row is rejected (direction identity stays unforgeable).
-// Rejections are counted and logged, never silent.
+// from the mTLS certificate; each result's (probe, target) pair must match
+// the agent's current expanded config or the row is rejected (direction
+// identity stays unforgeable, and results for deleted/disabled probes are
+// dropped so admin cleanup of their series is durable). Rejections are
+// counted and logged, never silent.
 func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*pb.PushResultsResponse, error) {
 	id, err := s.authenticateAgent(ctx)
 	if err != nil {
@@ -211,6 +213,12 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 			len(req.GetResults()), maxBatchSize)
 	}
 
+	assigned, err := s.agentProbeMap(ctx, id.AgentID)
+	if err != nil {
+		slog.Error("probe assignment load failed", "agent", id.AgentID, "err", err)
+		return nil, status.Error(codes.Unavailable, "assignment check failed, retry")
+	}
+
 	now := time.Now()
 	rows := make([]store.ResultRow, 0, len(req.GetResults()))
 	rejected := 0
@@ -221,14 +229,9 @@ func (s *Server) PushResults(ctx context.Context, req *pb.PushResultsRequest) (*
 			slog.Warn("rejecting malformed probe result", "agent", id.AgentID, "err", err)
 			continue
 		}
-		assigned, err := s.targetAssigned(ctx, id.AgentID, row.TargetID)
-		if err != nil {
-			slog.Error("target assignment check failed", "agent", id.AgentID, "err", err)
-			return nil, status.Error(codes.Unavailable, "assignment check failed, retry")
-		}
-		if !assigned {
+		if targetID, ok := assigned[row.ProbeID]; !ok || targetID != row.TargetID {
 			rejected++
-			slog.Warn("rejecting result for target not assigned to agent",
+			slog.Warn("rejecting result for probe not assigned to agent",
 				"agent", id.AgentID, "target", row.TargetID, "probe", row.ProbeID)
 			continue
 		}

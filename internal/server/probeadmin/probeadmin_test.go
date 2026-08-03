@@ -138,6 +138,9 @@ func TestValidateParams(t *testing.T) {
 		{"multiple problems", pb.ProbeType_PROBE_TYPE_TLS, true,
 			map[string]string{"bogus": "1", "tls.insecure_skip_verify": "nah"},
 			[]string{`unknown key "bogus"`, `must be "true" or "false"`, `"port" is required`}},
+		{"http mesh rejected", pb.ProbeType_PROBE_TYPE_HTTP, true, nil,
+			[]string{"http probes cannot be mesh templates"}},
+		{"http direct ok", pb.ProbeType_PROBE_TYPE_HTTP, false, nil, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -300,6 +300,8 @@ export interface ParamSpec {
 
 export interface ProbeTypeInfo {
   type: string
+  // http: the prober needs a URL, which mesh expansion cannot provide.
+  direct_only?: boolean
   params: ParamSpec[]
 }
 

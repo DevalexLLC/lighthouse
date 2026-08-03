@@ -170,9 +170,22 @@ func Params(t pb.ProbeType) []ParamSpec {
 	return registry[t]
 }
 
+// DirectOnly reports types that cannot be mesh templates. HTTP is the one
+// case: the prober reads only Target.Url, and mesh expansion carries only
+// the peer's address/port — an expanded HTTP mesh probe would fail on an
+// empty URL every run.
+func DirectOnly(t pb.ProbeType) bool {
+	return t == pb.ProbeType_PROBE_TYPE_HTTP
+}
+
 // ValidateParams checks a param map against the registry for the given type
 // and assignment mode, returning every problem.
 func ValidateParams(t pb.ProbeType, mesh bool, params map[string]string) []string {
+	var problems []string
+	if mesh && DirectOnly(t) {
+		problems = append(problems,
+			fmt.Sprintf("%s probes cannot be mesh templates: mesh expansion carries only the peer address/port and the prober needs a URL", TypeName(int16(t))))
+	}
 	specs := registry[t]
 	byKey := make(map[string]ParamSpec, len(specs))
 	accepted := make([]string, 0, len(specs))
@@ -180,8 +193,6 @@ func ValidateParams(t pb.ProbeType, mesh bool, params map[string]string) []strin
 		byKey[s.Key] = s
 		accepted = append(accepted, s.Key)
 	}
-
-	var problems []string
 
 	keys := make([]string, 0, len(params))
 	for k := range params {

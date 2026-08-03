@@ -45,6 +45,8 @@ func writeStoreError(w http.ResponseWriter, what string, err error) {
 		writeError(w, http.StatusConflict, inUse.Error())
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, store.ErrInvalid):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
 	default:
@@ -55,19 +57,21 @@ func writeStoreError(w http.ResponseWriter, what string, err error) {
 // --- probe types (param registry) ---
 
 type probeTypeJSON struct {
-	Type   string                `json:"type"`
-	Params []probeadmin.ParamSpec `json:"params"`
+	Type       string                 `json:"type"`
+	DirectOnly bool                   `json:"direct_only,omitempty"`
+	Params     []probeadmin.ParamSpec `json:"params"`
 }
 
 func (a *api) handleProbeTypes(w http.ResponseWriter, r *http.Request) {
 	names := probeadmin.Names()
 	types := make([]probeTypeJSON, 0, len(names))
 	for _, name := range names {
-		params := probeadmin.Params(probeadmin.TypeNames[name])
+		t := probeadmin.TypeNames[name]
+		params := probeadmin.Params(t)
 		if params == nil {
 			params = []probeadmin.ParamSpec{}
 		}
-		types = append(types, probeTypeJSON{Type: name, Params: params})
+		types = append(types, probeTypeJSON{Type: name, DirectOnly: probeadmin.DirectOnly(t), Params: params})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"types": types})
 }

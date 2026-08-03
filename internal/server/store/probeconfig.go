@@ -27,6 +27,19 @@ func notFoundf(format string, args ...any) error {
 	return notFoundError{msg: fmt.Sprintf(format, args...)}
 }
 
+// ErrInvalid marks admin writes that can never succeed as requested;
+// httpapi maps it to 400.
+var ErrInvalid = errors.New("invalid")
+
+type invalidError struct{ msg string }
+
+func (e invalidError) Error() string        { return e.msg }
+func (e invalidError) Is(target error) bool { return target == ErrInvalid }
+
+func invalidf(format string, args ...any) error {
+	return invalidError{msg: fmt.Sprintf(format, args...)}
+}
+
 // ErrConflict marks admin writes refused because they collide with an
 // existing row of a different kind; httpapi maps it to 409.
 var ErrConflict = errors.New("conflict")
@@ -217,18 +230,6 @@ func (s *Store) meshIDByName(ctx context.Context, name string) (uuid.UUID, error
 	return id, nil
 }
 
-func (s *Store) targetIDByName(ctx context.Context, name string) (uuid.UUID, error) {
-	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `SELECT id FROM targets WHERE name = $1`, name).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, notFoundf("target %q does not exist", name)
-	}
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("resolve target %q: %w", name, err)
-	}
-	return id, nil
-}
-
 // AddMeshMember adds a site to a mesh group. Idempotent.
 func (s *Store) AddMeshMember(ctx context.Context, meshName, siteName string) error {
 	meshID, err := s.meshIDByName(ctx, meshName)
@@ -362,15 +363,28 @@ func (s *Store) DeleteMeshGroup(ctx context.Context, name string) (int64, error)
 	return int64(len(templates)), nil
 }
 
-// AddDirectProbe assigns a probe of target to every agent at site.
+// AddDirectProbe assigns a probe of target to every agent at site. Only
+// external targets are accepted: an agent-kind target row carries no
+// address/port/URL (mesh expansion resolves peers via probe_address), so a
+// direct probe against one would fail on an empty destination every run.
 func (s *Store) AddDirectProbe(ctx context.Context, siteName, targetName string, ps ProbeSettings, updatedBy string) (uuid.UUID, error) {
 	siteID, err := s.SiteIDByName(ctx, siteName)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	targetID, err := s.targetIDByName(ctx, targetName)
+	var (
+		targetID   uuid.UUID
+		targetKind string
+	)
+	err = s.pool.QueryRow(ctx, `SELECT id, kind FROM targets WHERE name = $1`, targetName).Scan(&targetID, &targetKind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, notFoundf("target %q does not exist", targetName)
+	}
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("resolve target %q: %w", targetName, err)
+	}
+	if targetKind != "external" {
+		return uuid.Nil, invalidf("target %q is an enrollment-managed agent target: direct probes need an external target (mesh probes cover agent peers)", targetName)
 	}
 	var id uuid.UUID
 	err = s.pool.QueryRow(ctx, `

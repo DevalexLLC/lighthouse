@@ -134,29 +134,9 @@ type resultKey struct {
 	timeUS  int64
 }
 
-// TargetAssignedToAgent reports whether the target is currently assigned to
-// the agent — either via a direct probe config for the agent's site, or as
-// a mesh peer whose site shares an enabled mesh probe with the agent's site.
-// Results for unassigned targets are rejected: direction identity must stay
-// unforgeable by construction.
-func (s *Store) TargetAssignedToAgent(ctx context.Context, agentID, targetID uuid.UUID) (bool, error) {
-	var ok bool
-	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM probe_configs pc
-			JOIN agents me ON me.id = $1
-			WHERE pc.site_id = me.site_id AND pc.target_id = $2 AND pc.enabled
-		) OR EXISTS(
-			SELECT 1 FROM targets t
-			JOIN agents peer ON peer.id = t.agent_id
-			JOIN agents me ON me.id = $1
-			JOIN mesh_members mine ON mine.site_id = me.site_id
-			JOIN mesh_members theirs ON theirs.mesh_id = mine.mesh_id AND theirs.site_id = peer.site_id
-			JOIN probe_configs pc ON pc.mesh_id = mine.mesh_id AND pc.enabled
-			WHERE t.id = $2 AND t.kind = 'agent' AND peer.site_id <> me.site_id
-		)`, agentID, targetID).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("target assignment check: %w", err)
-	}
-	return ok, nil
-}
+// Ingest assignment checks moved to grpcapi's assignmentCache, which
+// derives each agent's probe→target map from the same meshexpand snapshot
+// the agent receives — a (probe, target) pair check rather than the old
+// target-only TargetAssignedToAgent query, so results for deleted or
+// disabled probes are rejected even while their target stays assigned
+// through another probe config.

@@ -1,4 +1,4 @@
-// PushResults ingestion: wire → row mapping and target-ownership checks.
+// PushResults ingestion: wire → row mapping and probe-assignment checks.
 package grpcapi
 
 import (
@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
+	"github.com/devalexllc/lighthouse/internal/server/meshexpand"
 	"github.com/devalexllc/lighthouse/internal/server/outage"
 	"github.com/devalexllc/lighthouse/internal/server/pathwatch"
 	"github.com/devalexllc/lighthouse/internal/server/store"
@@ -26,45 +27,43 @@ const (
 	// error text is truncated to keep hypertable rows narrow.
 	maxErrorLen = 128
 
-	ownershipCacheTTL = 30 * time.Second
+	assignmentCacheTTL = 30 * time.Second
 )
 
-// ownershipCache memoizes TargetAssignedToAgent so a batch touching a
-// handful of targets costs a handful of queries. Only positive AND negative
-// answers within the TTL are trusted — assignment changes converge within
-// 30 s, same as config distribution.
-type ownershipCache struct {
+// assignmentCache memoizes each agent's expanded probe→target map so a
+// batch costs at most one config load. Both presence and absence within the
+// TTL are trusted — assignment changes converge within 30 s, same as config
+// distribution. Checking the (probe, target) PAIR — not just the target —
+// matters for cleanup durability: a spooled result for a deleted or
+// disabled probe would otherwise slip through whenever its target is still
+// assigned via another probe config, recreating retired series_state and
+// reopening an incident that nothing will ever close.
+type assignmentCache struct {
 	mu      sync.Mutex
-	entries map[[32]byte]ownershipEntry
+	entries map[uuid.UUID]assignmentEntry
 }
 
-type ownershipEntry struct {
-	ok      bool
+type assignmentEntry struct {
+	// probe ID → the target that probe is configured against.
+	probes  map[uuid.UUID]uuid.UUID
 	expires time.Time
 }
 
-func cacheKey(agentID, targetID uuid.UUID) [32]byte {
-	var k [32]byte
-	copy(k[:16], agentID[:])
-	copy(k[16:], targetID[:])
-	return k
-}
-
-func (c *ownershipCache) lookup(agentID, targetID uuid.UUID, now time.Time) (ok, hit bool) {
+func (c *assignmentCache) lookup(agentID uuid.UUID, now time.Time) (map[uuid.UUID]uuid.UUID, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, found := c.entries[cacheKey(agentID, targetID)]
+	e, found := c.entries[agentID]
 	if !found || now.After(e.expires) {
-		return false, false
+		return nil, false
 	}
-	return e.ok, true
+	return e.probes, true
 }
 
-func (c *ownershipCache) put(agentID, targetID uuid.UUID, ok bool, now time.Time) {
+func (c *assignmentCache) put(agentID uuid.UUID, probes map[uuid.UUID]uuid.UUID, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
-		c.entries = make(map[[32]byte]ownershipEntry)
+		c.entries = make(map[uuid.UUID]assignmentEntry)
 	}
 	// Opportunistic sweep keeps the map bounded without a background task.
 	if len(c.entries) > 4096 {
@@ -74,20 +73,37 @@ func (c *ownershipCache) put(agentID, targetID uuid.UUID, ok bool, now time.Time
 			}
 		}
 	}
-	c.entries[cacheKey(agentID, targetID)] = ownershipEntry{ok: ok, expires: now.Add(ownershipCacheTTL)}
+	c.entries[agentID] = assignmentEntry{probes: probes, expires: now.Add(assignmentCacheTTL)}
 }
 
-func (s *Server) targetAssigned(ctx context.Context, agentID, targetID uuid.UUID) (bool, error) {
+// agentProbeMap returns the agent's current probe→target assignments,
+// derived from the SAME expansion that builds config snapshots
+// (meshexpand.BuildSnapshot), so ingest can never accept a probe ID the
+// agent wasn't told to run.
+func (s *Server) agentProbeMap(ctx context.Context, agentID uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
 	now := time.Now()
-	if ok, hit := s.ownership.lookup(agentID, targetID, now); hit {
-		return ok, nil
+	if m, hit := s.assignments.lookup(agentID, now); hit {
+		return m, nil
 	}
-	ok, err := s.store.TargetAssignedToAgent(ctx, agentID, targetID)
+	in, err := s.store.LoadAgentConfigInputs(ctx, agentID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	s.ownership.put(agentID, targetID, ok, now)
-	return ok, nil
+	specs := meshexpand.BuildSnapshot(in).GetProbes()
+	m := make(map[uuid.UUID]uuid.UUID, len(specs))
+	for _, spec := range specs {
+		probeID, err := uuid.Parse(spec.GetProbeId())
+		if err != nil {
+			continue // cannot happen: snapshot IDs are server-derived
+		}
+		targetID, err := uuid.Parse(spec.GetTarget().GetTargetId())
+		if err != nil {
+			continue
+		}
+		m[probeID] = targetID
+	}
+	s.assignments.put(agentID, m, now)
+	return m, nil
 }
 
 // resultToRow maps one wire ProbeResult to a hypertable row. Pure: all
