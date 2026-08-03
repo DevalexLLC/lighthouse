@@ -18,6 +18,9 @@ const PROBE_PAGE = 25
 // (internal/server/probeadmin): a zero train budgets as 10 × 200 ms.
 const DEFAULT_TRAIN_COUNT = 10
 const DEFAULT_TRAIN_SPACING_MS = 200
+// Stable identity for the not-yet-loaded case: a fresh `[]` per render would
+// change the memo key every render and defeat the pagination memo below.
+const NO_PROBES: ProbeConfig[] = []
 
 interface ProbeDraft {
   mode: 'mesh' | 'direct'
@@ -299,7 +302,7 @@ export default function ProbesPanel({
     }
   }
 
-  const probes = data?.probes ?? []
+  const probes = data?.probes ?? NO_PROBES
   const shown = useMemo(() => probes.slice(0, visible), [probes, visible])
 
   if (error && !data) {
@@ -582,7 +585,10 @@ export default function ProbesPanel({
           <div className="config-form">
             <h3 className="eyebrow">Add probe</h3>
             <div className="config-form-grid">
-              <label className="threshold-field">
+              {/* A <label> would be wrong here: this field holds a button
+                  group, not a form control, so there is nothing for the
+                  label to name. The group carries its own accessible name. */}
+              <div className="threshold-field">
                 <span className="eyebrow">Assignment</span>
                 <span className="control-group config-mode" role="group" aria-label="Probe assignment">
                   <button
@@ -612,7 +618,7 @@ export default function ProbesPanel({
                     Direct
                   </button>
                 </span>
-              </label>
+              </div>
               <label className="threshold-field">
                 <span className="eyebrow">Type</span>
                 <span className="threshold-input">

@@ -12,11 +12,12 @@ export function hopLabel(h: Hop | undefined): string {
   return h.addrs.join(', ')
 }
 
+const byTTL = (hops: Hop[], ttl: number) => hops.find((h) => h.ttl === ttl)
+
 // HopDiff renders old and new hop lists side by side, one row per TTL,
 // highlighting rows whose responder set changed.
 function HopDiff({ oldHops, newHops }: { oldHops: Hop[]; newHops: Hop[] }) {
   const rows = Math.max(0, ...oldHops.map((h) => h.ttl), ...newHops.map((h) => h.ttl))
-  const byTTL = (hops: Hop[], ttl: number) => hops.find((h) => h.ttl === ttl)
   return (
     <div className="scroll-x">
       <table className="hop-diff">

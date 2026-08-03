@@ -35,6 +35,9 @@ const COLORS = {
   dark: { aToB: '#3987e5', bToA: '#d55181', grid: '#30312d', axis: '#b9b8ae' },
 }
 
+// Wire timings are microseconds; charts plot milliseconds.
+const ms = (v: number | null | undefined) => (v == null ? null : v / 1000)
+
 // withPctl must match the series list mkOptions builds for the same render:
 // uPlot requires data columns and series definitions to agree in count.
 function toChartData(points: SeriesPoint[], metric: Metric, withPctl: boolean): uPlot.AlignedData {
@@ -42,7 +45,6 @@ function toChartData(points: SeriesPoint[], metric: Metric, withPctl: boolean): 
   if (metric === 'loss') {
     return [ts, points.map((p) => p.loss_pct)]
   }
-  const ms = (v: number | null | undefined) => (v == null ? null : v / 1000)
   const cols: uPlot.AlignedData = [
     ts,
     points.map((p) => ms(p.avg_us)),
@@ -306,7 +308,7 @@ export default function PairDetail({
         metric === 'loss'
           ? (_u: uPlot, v: number) => (v == null ? '—' : `${v.toFixed(1)}%`)
           : (_u: uPlot, v: number) => (v == null ? '—' : v.toFixed(3))
-      const series: uPlot.Series[] =
+      const chartSeries: uPlot.Series[] =
         metric === 'loss'
           ? [{}, { label: 'loss %', stroke, width: 2, spanGaps: false, value }]
           : [
@@ -317,7 +319,7 @@ export default function PairDetail({
             ]
       if (metric === 'latency' && withPctl) {
         // Aggregate windows only; must stay in lockstep with toChartData.
-        series.push(
+        chartSeries.push(
           { label: 'p50', stroke, width: 1.5, alpha: 0.7, spanGaps: false, value },
           { label: 'p95', stroke, width: 1, alpha: 0.55, dash: [6, 4], spanGaps: false, value },
           { label: 'p99', stroke, width: 1, alpha: 0.35, dash: [2, 4], spanGaps: false, value },
@@ -325,7 +327,7 @@ export default function PairDetail({
       }
       return {
         height: 230,
-        series,
+        series: chartSeries,
         scales: metric === 'loss' ? { y: { range: [0, lossCeiling] } } : {},
         axes: [{ ...axisStyle }, { ...axisStyle, label: axisLabel, size: 64 }],
         cursor: { drag: { x: true, y: false } },

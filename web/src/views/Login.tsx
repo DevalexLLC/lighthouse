@@ -54,6 +54,10 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
         <p className="login-sub">Sign in to the Lighthouse control plane.</p>
         <label className="eyebrow">
           Username
+          {/* Sign-in is this page's only purpose and this is its first field,
+              so focusing it costs no orientation and saves every operator a
+              keystroke. */}
+          {/* oxlint-disable-next-line jsx-a11y/no-autofocus */}
           <input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>
         <label className="eyebrow">

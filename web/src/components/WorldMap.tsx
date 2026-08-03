@@ -64,6 +64,10 @@ export default function WorldMap({
     setHovered(name)
   }
 
+  // The locals below deliberately carry the same names the memo result is
+  // destructured into — they are the same values, and renaming either side
+  // would only invent a second vocabulary for one concept.
+  /* oxlint-disable no-shadow */
   const { placed, unplaced, siteSeverity, siteStats } = useMemo(() => {
     const placed = sites.filter((s) => s.latitude != null && s.longitude != null)
     const unplaced = sites.filter((s) => s.latitude == null || s.longitude == null)
@@ -123,6 +127,7 @@ export default function WorldMap({
     for (const stats of siteStats.values()) stats.peers.sort()
     return { placed, unplaced, siteSeverity, siteStats }
   }, [sites, cells, thresholds])
+  /* oxlint-enable no-shadow */
 
   // Sites the matrix has never measured read as stale, never as OK.
   const sevOf = (name: string): Severity => siteSeverity.get(name) ?? 'stale'
@@ -225,71 +230,78 @@ export default function WorldMap({
           })}
         </svg>
         {legend}
-        {shownSite && shownPoint && shownStats && shownSev && (
-          <div
-            className={'map-tip' + (shownPoint.x > MAP_VIEW_W * 0.72 ? ' map-tip-left' : '')}
-            style={{
-              left: `${(shownPoint.x / MAP_VIEW_W) * 100}%`,
-              top: `${(shownPoint.y / MAP_VIEW_H) * 100}%`,
-            }}
-            role="status"
-            onMouseEnter={cancelHoverClear}
-            onMouseLeave={scheduleHoverClear}
-            // Focus/blur bubble from the pair links, so keyboard entry
-            // cancels the pending clear exactly like mouse entry — without
-            // this, tabbing from the last bubble into the card races the
-            // 140 ms clear and the focused link can unmount mid-tab.
-            onFocus={cancelHoverClear}
-            onBlur={scheduleHoverClear}
-          >
-            <div className="map-tip-head">
-              <b>{shownSite.name.toUpperCase()}</b>
-              <span className={`map-tip-pill sev-${shownSev}`}>{SEVERITY_LABEL[shownSev]}</span>
-            </div>
-            {(shownSite.location || shownSite.display_name) && (
-              <div className="map-tip-sub">{shownSite.location || shownSite.display_name}</div>
-            )}
-            <div className="map-tip-value">
-              {shownStats.bestLatencyUs == null ? '—' : fmtLatency(shownStats.bestLatencyUs)}
-              <small> best live latency</small>
-            </div>
-            {shownStats.directions > 0 && (
-              <div
-                className="map-tip-bar"
-                role="img"
-                aria-label={`${shownStats.dirCounts.ok} of ${shownStats.directions} directions healthy`}
-              >
-                {SEVERITIES.filter((sev) => shownStats.dirCounts[sev] > 0).map((sev) => (
-                  <span
-                    key={sev}
-                    className={`map-tip-bar-seg sev-${sev}`}
-                    style={{ flexGrow: shownStats.dirCounts[sev] }}
-                  />
-                ))}
+        {shownSite &&
+          shownPoint &&
+          shownStats &&
+          shownSev && (
+            // The handlers below keep this hover card open while the pointer or
+            // keyboard focus is inside it; they add no interaction of their own,
+            // so the card stays a live region rather than becoming a control.
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+            <div
+              className={'map-tip' + (shownPoint.x > MAP_VIEW_W * 0.72 ? ' map-tip-left' : '')}
+              style={{
+                left: `${(shownPoint.x / MAP_VIEW_W) * 100}%`,
+                top: `${(shownPoint.y / MAP_VIEW_H) * 100}%`,
+              }}
+              role="status"
+              onMouseEnter={cancelHoverClear}
+              onMouseLeave={scheduleHoverClear}
+              // Focus/blur bubble from the pair links, so keyboard entry
+              // cancels the pending clear exactly like mouse entry — without
+              // this, tabbing from the last bubble into the card races the
+              // 140 ms clear and the focused link can unmount mid-tab.
+              onFocus={cancelHoverClear}
+              onBlur={scheduleHoverClear}
+            >
+              <div className="map-tip-head">
+                <b>{shownSite.name.toUpperCase()}</b>
+                <span className={`map-tip-pill sev-${shownSev}`}>{SEVERITY_LABEL[shownSev]}</span>
               </div>
-            )}
-            <div className="map-tip-caption">
-              {shownStats.degree} {shownStats.degree === 1 ? 'link' : 'links'} · {shownStats.dirCounts.ok} of{' '}
-              {shownStats.directions} {shownStats.directions === 1 ? 'direction' : 'directions'} healthy
-            </div>
-            {shownStats.peers.length > 0 && (
-              <div className="map-tip-links">
-                {shownStats.peers.map((peer) => (
-                  <a
-                    key={peer}
-                    href={`#/pair/${encodeURIComponent(shownSite.name)}/${encodeURIComponent(peer)}`}
-                    aria-label={`Open pair detail for ${shownSite.name} and ${peer}`}
-                  >
-                    {shownSite.name} ⇄ {peer}
-                    <span className="map-tip-link-arrow" aria-hidden="true">
-                      ↗
-                    </span>
-                  </a>
-                ))}
+              {(shownSite.location || shownSite.display_name) && (
+                <div className="map-tip-sub">{shownSite.location || shownSite.display_name}</div>
+              )}
+              <div className="map-tip-value">
+                {shownStats.bestLatencyUs == null ? '—' : fmtLatency(shownStats.bestLatencyUs)}
+                <small> best live latency</small>
               </div>
-            )}
-          </div>
-        )}
+              {shownStats.directions > 0 && (
+                <div
+                  className="map-tip-bar"
+                  role="img"
+                  aria-label={`${shownStats.dirCounts.ok} of ${shownStats.directions} directions healthy`}
+                >
+                  {SEVERITIES.filter((sev) => shownStats.dirCounts[sev] > 0).map((sev) => (
+                    <span
+                      key={sev}
+                      className={`map-tip-bar-seg sev-${sev}`}
+                      style={{ flexGrow: shownStats.dirCounts[sev] }}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="map-tip-caption">
+                {shownStats.degree} {shownStats.degree === 1 ? 'link' : 'links'} · {shownStats.dirCounts.ok} of{' '}
+                {shownStats.directions} {shownStats.directions === 1 ? 'direction' : 'directions'} healthy
+              </div>
+              {shownStats.peers.length > 0 && (
+                <div className="map-tip-links">
+                  {shownStats.peers.map((peer) => (
+                    <a
+                      key={peer}
+                      href={`#/pair/${encodeURIComponent(shownSite.name)}/${encodeURIComponent(peer)}`}
+                      aria-label={`Open pair detail for ${shownSite.name} and ${peer}`}
+                    >
+                      {shownSite.name} ⇄ {peer}
+                      <span className="map-tip-link-arrow" aria-hidden="true">
+                        ↗
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
       </div>
       {missingStrip}
     </>

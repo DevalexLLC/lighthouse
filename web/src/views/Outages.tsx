@@ -65,6 +65,9 @@ function groupIncidents(events: OutageEvent[]): IncidentGroup[] {
     group.events.push(event)
     groups.set(key, group)
   }
+  // The spread already copies, so this sorts a fresh array and mutates
+  // nothing shared.
+  // oxlint-disable-next-line unicorn/no-array-sort
   return [...groups.values()].sort((a, b) => {
     if (a.open !== b.open) return a.open ? -1 : 1
     return Date.parse(b.events[0].opened_at) - Date.parse(a.events[0].opened_at)

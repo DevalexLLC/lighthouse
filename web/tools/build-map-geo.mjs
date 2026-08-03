@@ -105,7 +105,7 @@ const arcs = topo.arcs.map((arc) => {
 function ringLonLat(arcIndexes) {
   const pts = []
   for (const idx of arcIndexes) {
-    let a = idx < 0 ? arcs[~idx].slice().reverse() : arcs[idx]
+    let a = idx < 0 ? arcs[~idx].toReversed() : arcs[idx]
     if (pts.length > 0) a = a.slice(1) // consecutive arcs share an endpoint
     pts.push(...a)
   }
@@ -143,23 +143,25 @@ function densifyEdges(pts) {
   return out
 }
 
+// One Sutherland–Hodgman half-plane pass over a lon/lat ring.
+function clipHalf(ring, inside, boundary) {
+  const out = []
+  for (let i = 0; i < ring.length; i++) {
+    const cur = ring[i]
+    const prev = ring[(i + ring.length - 1) % ring.length]
+    const curIn = inside(cur)
+    const prevIn = inside(prev)
+    if (curIn !== prevIn) {
+      const t = (boundary - prev[0]) / (cur[0] - prev[0])
+      out.push([boundary, prev[1] + t * (cur[1] - prev[1])])
+    }
+    if (curIn) out.push(cur)
+  }
+  return out
+}
+
 // Sutherland–Hodgman clip of a lon/lat ring against lon ∈ [−180, 180].
 function clipBand(pts) {
-  const clipHalf = (input, inside, boundary) => {
-    const out = []
-    for (let i = 0; i < input.length; i++) {
-      const cur = input[i]
-      const prev = input[(i + input.length - 1) % input.length]
-      const curIn = inside(cur)
-      const prevIn = inside(prev)
-      if (curIn !== prevIn) {
-        const t = (boundary - prev[0]) / (cur[0] - prev[0])
-        out.push([boundary, prev[1] + t * (cur[1] - prev[1])])
-      }
-      if (curIn) out.push(cur)
-    }
-    return out
-  }
   let r = clipHalf(pts, (p) => p[0] >= -180, -180)
   if (r.length >= 3) r = clipHalf(r, (p) => p[0] <= 180, 180)
   return r.length >= 3 ? r : null

@@ -10,7 +10,7 @@
   var pref = null
   try {
     pref = localStorage.getItem('lighthouse-theme')
-  } catch (e) {
+  } catch {
     /* storage may be unavailable (private mode); fall through to system */
   }
   var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
