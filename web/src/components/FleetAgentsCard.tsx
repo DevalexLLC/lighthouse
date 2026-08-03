@@ -66,7 +66,13 @@ export default function FleetAgentsCard({
   const bucketS = health?.bucket_s ?? 1800
   // Align the slot grid to bucket boundaries; the newest (partial) bucket is
   // included so fresh failures show up within a poll cycle.
-  const endS = (Math.floor(Date.now() / 1000 / bucketS) + 1) * bucketS
+  const nowS = Date.now() / 1000
+  const endS = (Math.floor(nowS / bucketS) + 1) * bucketS
+  // The last slot is always the in-progress bucket — coverage judgments
+  // below must only weigh the completed ones, or every agent would flicker
+  // to "partial" right after each boundary (and a lone fresh sample would
+  // claim a full 30 minutes).
+  const currentStart = endS - bucketS
   const healthById = new Map(health?.agents.map((a) => [a.id, a.buckets]) ?? [])
 
   return (
@@ -108,10 +114,19 @@ export default function FleetAgentsCard({
                 // The ratio only covers buckets that have samples — an agent
                 // that succeeded briefly and then went silent must not read
                 // as a confident 100%. Partial coverage renders muted with
-                // the measured span spelled out.
-                const covered = inWindow.filter((b) => b.samples > 0).length
-                const coveredHours = (covered * bucketS) / 3600
-                const partial = uptime != null && covered < SLOTS
+                // the measured span spelled out. Full confidence = every
+                // COMPLETED slot covered; the in-progress bucket is prorated
+                // into the measured hours but never decides coverage.
+                const completedCovered = inWindow.filter(
+                  (b) => b.samples > 0 && b.t < currentStart,
+                ).length
+                const currentHasData = inWindow.some(
+                  (b) => b.t >= currentStart && b.samples > 0,
+                )
+                const coveredHours =
+                  (completedCovered * bucketS) / 3600 +
+                  (currentHasData ? (nowS - currentStart) / 3600 : 0)
+                const partial = uptime != null && completedCovered < SLOTS - 1
                 const stripLabel =
                   uptime == null
                     ? 'No probe results in the last 24 hours'
