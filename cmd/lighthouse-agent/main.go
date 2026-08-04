@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/devalexllc/lighthouse/internal/agent/config"
@@ -128,8 +129,13 @@ func cmdRun(args []string) error {
 	}
 	setupLogging(cfg.Log.Level)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Cancellable in its own right: a fatal uplink error must also stop the
+	// background goroutines, or the shutdown barrier below would wait forever.
+	ctx, cancel := context.WithCancel(sigCtx)
+	defer cancel()
+	var wg sync.WaitGroup
 
 	up, err := uplink.New(cfg)
 	if err != nil {
@@ -156,8 +162,25 @@ func cmdRun(args []string) error {
 	defer sched.Stop()
 	up.OnSnapshot = sched.Apply
 
-	go uplink.NewPusher(up, sp).Run(ctx)
-	go up.NewRenewer().Run(ctx)
+	// Shutdown barrier. Declared last so it runs FIRST among the defers:
+	// the pusher and the renewer are joined before sched.Stop, sp.Close and
+	// up.Close tear down the spool and the gRPC connection underneath them.
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
+
+	pusher := uplink.NewPusher(up, sp)
+	renewer := up.NewRenewer()
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		pusher.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		renewer.Run(ctx)
+	}()
 	return up.Run(ctx)
 }
 
