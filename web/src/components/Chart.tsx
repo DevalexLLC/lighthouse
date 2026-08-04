@@ -26,6 +26,12 @@ export default function Chart({ options, data }: { options: Omit<uPlot.Options, 
     }
   }, [options])
 
+  // Plain setData: uPlot re-autoscales and refreshes cursor and legend in one
+  // commit. A refresh therefore drops a zoom the operator had drawn — holding
+  // it means suppressing that autoscale, which also suppresses the commit that
+  // keeps the marker and legend truthful, so the chart reads stale instead.
+  // Preserving zoom across polls needs to be built and tested against a real
+  // browser, not inferred from uPlot's internals.
   useEffect(() => {
     plotRef.current?.setData(data)
   }, [data])
