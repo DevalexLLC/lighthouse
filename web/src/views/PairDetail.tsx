@@ -111,16 +111,21 @@ function latestValueIndex(data: uPlot.AlignedData): number {
   return 0
 }
 
-function latestLegendPlugin(index: number): uPlot.Plugin {
-  const restore = (u: uPlot) => u.setLegend({ idx: index })
+// Pins the live legend to the newest measured point whenever the cursor is
+// away. The index is read from the plot's own data at call time, never
+// captured: baking it into the plugin would make the options identity change
+// on every poll, and Chart recreates uPlot whenever options change.
+function latestLegendPlugin(): uPlot.Plugin {
+  const restore = (u: uPlot) => u.setLegend({ idx: latestValueIndex(u.data) })
+  // Never while the operator is hovering: their cursor owns the readout.
+  const restoreIfAway = (u: uPlot) => {
+    if ((u.cursor.left ?? -1) < 0) restore(u)
+  }
   return {
     hooks: {
       ready: [restore],
-      setCursor: [
-        (u) => {
-          if ((u.cursor.left ?? -1) < 0) restore(u)
-        },
-      ],
+      setData: [restoreIfAway],
+      setCursor: [restoreIfAway],
     },
   }
 }
@@ -289,13 +294,27 @@ export default function PairDetail({
   }, [a, b, win, metric, onAuthError])
 
   const mkOptions = useMemo(() => {
+    // Options are cached by everything they depend on, so a poll that changes
+    // only the data hands Chart the SAME object and the uPlot instance
+    // survives. A rebuilt object destroys and recreates the canvas on every
+    // refresh, which is what this avoids. The key space is tiny and bounded:
+    // one pair and window, two directions, a handful of axis labels, five
+    // loss ceilings.
+    const cache = new Map<string, Omit<uPlot.Options, 'width'>>()
     return (
       direction: 'aToB' | 'bToA',
       axisLabel: string,
       withPctl: boolean,
-      latestIndex: number,
       lossCeiling: number,
     ): Omit<uPlot.Options, 'width'> => {
+      // lossCeiling only reaches the options on the loss metric; keying on it
+      // while showing latency would miss the cache — and so destroy both
+      // charts — whenever loss crossed a ceiling band.
+      // The pair and window are keyed too, so a different dataset always gets
+      // a fresh plot rather than inheriting one built for the old series.
+      const key = [a, b, win, direction, axisLabel, withPctl, metric === 'loss' ? lossCeiling : ''].join('|')
+      const cached = cache.get(key)
+      if (cached) return cached
       const c = COLORS[resolved]
       const stroke = c[direction]
       const axisStyle = {
@@ -325,20 +344,24 @@ export default function PairDetail({
           { label: 'p99', stroke, width: 1, alpha: 0.35, dash: [2, 4], spanGaps: false, value },
         )
       }
-      return {
+      const options: Omit<uPlot.Options, 'width'> = {
         height: 230,
         series: chartSeries,
         scales: metric === 'loss' ? { y: { range: [0, lossCeiling] } } : {},
         axes: [{ ...axisStyle }, { ...axisStyle, label: axisLabel, size: 64 }],
         cursor: { drag: { x: true, y: false } },
         legend: { live: true },
-        plugins: [latestLegendPlugin(latestIndex)],
+        plugins: [latestLegendPlugin()],
       }
+      cache.set(key, options)
+      return options
     }
-    // Rebuild when the metric changes (series shape differs) or the theme
-    // flips (new options identity makes Chart recreate uPlot with the right
-    // palette — this is what keeps charts recoloring live on toggle).
-  }, [metric, resolved])
+    // Dropping the cache entirely on a metric change (the series shape
+    // differs) or a theme flip is what makes every identity new, so Chart
+    // recreates uPlot with the right palette and charts recolor live on
+    // toggle. Nothing in the key changes on a poll, so charts survive
+    // refreshes.
+  }, [metric, resolved, win, a, b])
 
   if (error && !series)
     return (
@@ -455,10 +478,7 @@ export default function PairDetail({
                 </p>
               </div>
             ) : (
-              <Chart
-                options={mkOptions(chart, axisLabel, withPctl, latestValueIndex(chartData), lossCeiling)}
-                data={chartData}
-              />
+              <Chart options={mkOptions(chart, axisLabel, withPctl, lossCeiling)} data={chartData} />
             )}
           </div>
         )
