@@ -872,6 +872,20 @@ regardless of the OIDC configuration or the provider's availability, so a
 local admin is always your break-glass access. Configure at least one local
 admin before enabling SSO.
 
+If you are adding SSO to a control plane installed from an earlier
+release, upgrade it first using the standard procedure under
+[Upgrades](#upgrades) — new images, then `migrate`, then recreate the
+services. SSO ships as migration `0011`, which runs in a single
+transaction and makes exactly these schema changes: on `users` it relaxes
+`password_hash` to nullable (federated accounts have none), adds
+`auth_source` (`NOT NULL DEFAULT 'local'`), adds the nullable
+`oidc_subject` with a partial unique index, and adds a CHECK enforcing
+one credential shape per row; it also creates the new `oidc_settings`
+table with its single seeded, disabled row. No existing row is modified
+or deleted — every pre-upgrade user already satisfies the new constraints
+as a `local` account — and until an admin enables SSO nothing behaves
+differently.
+
 SSO is the one feature that makes the server perform outbound HTTP:
 discovery, token, and key fetches to the identity provider at login time,
 plus an immediate discovery call whenever an admin presses **Test
