@@ -863,6 +863,94 @@ The proxy access log includes the received SNI and selected backend. Agent
 connections must show `sni="<grpc-name>"` and `backend=server_grpc`. Browser
 connections should use `backend=server_dashboard`.
 
+## Optional: single sign-on (OIDC)
+
+Dashboard sign-in can delegate to an OpenID Connect identity provider such
+as Keycloak. SSO is strictly optional and default-off. Local accounts —
+including the first admin created with `user add --admin` — keep working
+regardless of the OIDC configuration or the provider's availability, so a
+local admin is always your break-glass access. Configure at least one local
+admin before enabling SSO.
+
+SSO is the one feature that makes the server perform outbound HTTP:
+discovery, token, and key fetches to the identity provider at login time,
+plus an immediate discovery call whenever an admin presses **Test
+connection** (that works even while SSO is still disabled — it is how you
+prove connectivity before enabling). Startup, local login, and probing
+never contact the provider. Builds and images remain fully offline either
+way.
+
+### Configure the identity provider (Keycloak example)
+
+1. In your realm, create a **confidential** OpenID Connect client, e.g.
+   `lighthouse`. Enable the standard (authorization code) flow; no other
+   flow is needed.
+2. Set the client's redirect URI to exactly:
+
+   ```text
+   https://<dashboard-name>/api/v1/auth/oidc/callback
+   ```
+
+3. Note the client secret from the client's credentials tab.
+4. To grant Lighthouse admin from group membership, add a **Group
+   Membership** mapper (claim name `groups`, full path off is simplest) to
+   the client, and put your operator accounts in a group such as
+   `lighthouse-admins`.
+
+### Configure Lighthouse
+
+Sign in as a local admin and open **Settings → Authentication** (user menu
+→ Settings). The fields:
+
+| Field | Meaning |
+|---|---|
+| Issuer URL | The provider's issuer, e.g. `https://keycloak.example/realms/main`. Discovery runs against `<issuer>/.well-known/openid-configuration`. |
+| Client ID / Client secret | The confidential client's credentials. The secret is write-only: after saving, the form shows only that one is stored, and leaving the field empty on later saves keeps it. Changing the issuer or client ID requires entering a new secret — the stored one belongs to the previous provider and is never sent elsewhere. |
+| Redirect URL | The exact callback URL above. It is deliberately explicit — the server sits behind an SNI passthrough proxy and never guesses its own external name. |
+| Scopes | Must include `openid`. Add `profile`/`email` if your username claim needs them. |
+| Username claim | The ID-token claim shown as the dashboard username (default `preferred_username`). Missing claim = failed login, loudly. |
+| Role claim / Admin values | The claim checked for admin (default `groups`, string or array). Exact matches against any admin value grant `admin`; every other authenticated user is a `viewer`. |
+| Identity provider CA | Optional PEM certificate(s) for providers on a private PKI. When set it replaces the system trust store for IdP calls only. |
+
+Use **Test connection** before enabling: it runs discovery with the
+submitted values and reports the provider's endpoints, or the exact
+network/TLS error. Saving applies immediately — no restart.
+
+### Semantics worth knowing
+
+- Federated users are created on first successful login, keyed on the
+  provider's immutable `sub` claim — renaming a user at the IdP renames it
+  here on the next login instead of creating a duplicate. If the username
+  is already taken by another account, the federated account instead gets
+  a deterministic `-<8 hex>` suffix derived from the subject. (If that
+  exact suffixed name is also taken — practically only when someone
+  pre-created it on purpose — the login fails loudly rather than guessing
+  further.)
+- Username and role are refreshed from the IdP at every login, and the
+  refreshed role takes effect immediately for **all** of that user's open
+  dashboard sessions — sessions read the user row on every request, so a
+  demotion (or promotion) at the IdP lands everywhere as soon as the user
+  next completes an SSO login.
+- To revoke one federated user's access without touching the IdP, set its
+  `disabled` flag (same lever as local users; there is no CLI for it yet):
+
+  ```sh
+  docker compose exec timescaledb psql -U lighthouse -d lighthouse -c \
+    "UPDATE users SET disabled = true WHERE username = '<name>'"
+  ```
+
+  Disabling kills the user's existing sessions on their next request and
+  survives re-login attempts.
+- Federated users cannot sign in with a password; the local form treats
+  them as unknown users.
+- Changing the issuer to a different provider re-maps federated accounts
+  by subject only. Subjects are provider-scoped, so when switching
+  providers, disable or delete the old federated users rather than
+  assuming they are inert.
+- The client secret lives in the `oidc_settings` table and therefore in
+  database backups. Treat backups accordingly, and rotate the secret at
+  the provider if a backup leaks.
+
 ## Firewall requirements
 
 ### Control-plane host
@@ -871,6 +959,7 @@ connections should use `backend=server_dashboard`.
 |---|---|---|---|
 | Inbound | TCP 443 | operator browsers | dashboard HTTPS using `<dashboard-name>` |
 | Inbound | TCP 443 | every agent | enrollment, config, results, and renewal using `<grpc-name>` |
+| Outbound | HTTPS to the IdP's actual ports | identity provider | only with OIDC SSO: discovery/token/JWKS calls at login time, and discovery when an admin runs Test connection (even before enabling). Cover the issuer URL's port (443 unless configured otherwise) and every host/port its discovery document advertises for the authorization, token, and JWKS endpoints. |
 
 The control plane initiates no Lighthouse connections to agents. Agent config
 uses a long-lived TLS connection with keepalive traffic about once a minute.

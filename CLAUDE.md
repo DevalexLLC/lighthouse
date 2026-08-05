@@ -72,6 +72,45 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- Optional OIDC SSO for the dashboard (2026-08-05): authorization-code +
+  PKCE via vendored go-oidc/v3 + x/oauth2. Config is the single-row
+  `oidc_settings` table (migration 0011 — first post-release migration, so
+  a NEW numbered file, not edit-in-place), edited from Settings →
+  Authentication (`#/settings/authentication`; GET is admin-only too),
+  validated in httpapi with the problems/warnings idiom, applied without
+  restart (`oidcauth.Manager` caches the discovered provider keyed on
+  `updated_at`; PUT calls `Invalidate`). Discovery is lazy with a
+  dedicated 10 s http.Client (`ca_pem` REPLACES system roots when set) —
+  startup and local login never touch the IdP; the seeded local admin is
+  break-glass by construction, and `handleLogin` burns the dummy hash for
+  NULL-hash federated users (empty hash would otherwise be a malformed-PHC
+  500). Federated users: JIT upsert keyed on OIDC `sub`
+  (`users.oidc_subject`, partial unique index; `users_auth_shape` CHECK =
+  exactly one credential shape; username collision retries once with
+  sha256(sub) suffix), username/role refresh every login, `disabled` is
+  never touched by the upsert (per-user SSO revocation lever). Endpoints:
+  open `auth/providers` (enabled bool only) + `auth/oidc/start|callback`
+  (rate-limited navigations; failures redirect to `/#/sso-error=<code>`,
+  short codes only, detail in server log), admin `settings/oidc`
+  GET/PUT/`/test` (secret write-only: `client_secret_set` out, empty
+  secret in = keep stored — SQL uses `CASE WHEN $12` so all params stay
+  referenced). State cookie `lighthouse_oidc_state`
+  (state.nonce.pkce-verifier, Path=/api/v1/auth/oidc, SameSite=Lax — must
+  ride the cross-site return; session cookie stays Strict: Set-Cookie on
+  the callback response is accepted, index.html needs no cookie, SPA
+  fetches are same-site). SPA: Login gains an SSO button (full navigation
+  to /start — fetch can't follow the 302; CSP unchanged) + sso-error
+  mapping; `OIDCSettingsPanel` follows the draft-null/dirty/save + 30 s
+  poll pattern. Tests: httpapi via `newHandler(db, static,
+  fakeProviders)`; oidcauth runs the REAL go-oidc path against an
+  in-process TLS fake IdP (jose-signed tokens, PKCE/nonce round-trip,
+  ca_pem honored). Caveat: upsert/collision/CHECK SQL and the oidc_settings
+  UPDATE aren't exercised by fakes — verify against a real migrated DB
+  (manual Keycloak gate in docs/install.md's SSO section; Keycloak runs as
+  a documented `docker run` on the compose network, never a compose
+  service). Switching issuers re-maps federated accounts by subject —
+  documented, deliberate (single-IdP trust model).
+
 - `docs/install.md` is the zero-to-working-system operator guide: online image
   pulls and offline bundles, DNS/dashboard TLS/SNI proxy setup, explicit
   production migration and CA initialization, RPM and container agents,
