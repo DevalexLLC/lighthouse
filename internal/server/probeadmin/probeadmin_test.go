@@ -42,11 +42,11 @@ var cliFields = FieldNames{
 
 func TestValidateSettings(t *testing.T) {
 	cases := []struct {
-		name               string
-		interval, timeout  time.Duration
-		count              int
-		spacing            time.Duration
-		wantContains       []string
+		name              string
+		interval, timeout time.Duration
+		count             int
+		spacing           time.Duration
+		wantContains      []string
 	}{
 		{"ok", 30 * time.Second, 5 * time.Second, 0, 0, nil},
 		{"ok train", 30 * time.Second, 5 * time.Second, 10, 200 * time.Millisecond, nil},
@@ -172,5 +172,118 @@ func TestRegistryCoversAllTypes(t *testing.T) {
 		if _, ok := registry[typ]; !ok {
 			t.Errorf("probe type %s has no registry entry", name)
 		}
+	}
+}
+
+// TestValidateMeshMembers pins the rule that silently cost an operator a
+// configured-but-dead mesh: expansion needs two distinct sites, so anything
+// smaller must be refused at write time rather than accepted and ignored.
+func TestValidateMeshMembers(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		members int
+		wantErr bool
+	}{
+		{"empty mesh", 0, true},
+		{"single site", 1, true},
+		{"minimum viable", 2, false},
+		{"larger mesh", 5, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := ValidateMeshMembers("edge", c.members)
+			if c.wantErr != (len(got) > 0) {
+				t.Fatalf("ValidateMeshMembers(%d) = %v, wantErr %v", c.members, got, c.wantErr)
+			}
+			if !c.wantErr {
+				return
+			}
+			// The message must name the mesh and the requirement: an
+			// operator reads this instead of watching an empty dashboard.
+			joined := strings.Join(got, "; ")
+			for _, want := range []string{`"edge"`, "distinct sites"} {
+				if !strings.Contains(joined, want) {
+					t.Errorf("message %q missing %q", joined, want)
+				}
+			}
+		})
+	}
+}
+
+// TestWarnings pins the mesh-dns advisory. It must stay a warning: agents
+// that genuinely run resolvers make this configuration correct, so it can
+// never become a hard error.
+func TestWarnings(t *testing.T) {
+	dnsQ := map[string]string{"dns.qname": "example.internal"}
+	dnsResolved := map[string]string{"dns.qname": "example.internal", "dns.resolver": "10.0.0.53:53"}
+
+	for _, c := range []struct {
+		name   string
+		typ    pb.ProbeType
+		mesh   bool
+		params map[string]string
+		want   bool
+	}{
+		{"mesh dns without resolver warns", pb.ProbeType_PROBE_TYPE_DNS, true, dnsQ, true},
+		{"mesh dns with explicit resolver is silent", pb.ProbeType_PROBE_TYPE_DNS, true, dnsResolved, false},
+		{"direct dns is silent", pb.ProbeType_PROBE_TYPE_DNS, false, dnsQ, false},
+		{"mesh icmp is silent", pb.ProbeType_PROBE_TYPE_ICMP, true, nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := Warnings(c.typ, c.mesh, c.params)
+			if c.want != (len(got) > 0) {
+				t.Fatalf("Warnings = %v, want warning %v", got, c.want)
+			}
+			if c.want && !strings.Contains(strings.Join(got, "; "), "dns.resolver") {
+				t.Errorf("warning %v must name the param that fixes it", got)
+			}
+		})
+	}
+}
+
+// TestWarningsNeverBlock pins that warnings are advisory only: any config
+// that warns must still pass validation, or the warning would be a lie.
+func TestWarningsNeverBlock(t *testing.T) {
+	params := map[string]string{"dns.qname": "example.internal"}
+	if len(Warnings(pb.ProbeType_PROBE_TYPE_DNS, true, params)) == 0 {
+		t.Fatal("expected the mesh-dns warning for this fixture")
+	}
+	if problems := ValidateParams(pb.ProbeType_PROBE_TYPE_DNS, true, params); len(problems) > 0 {
+		t.Errorf("a warned config must still validate, got %v", problems)
+	}
+}
+
+// TestValidateMeshMemberRemoval pins the second route to a dead mesh probe.
+// Creation refuses a too-small mesh; removal must refuse to shrink a probed
+// mesh below the same floor, or the invariant is trivially bypassed.
+func TestValidateMeshMemberRemoval(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		membersAfter int
+		templates    int
+		wantRefusal  bool
+	}{
+		{"probed mesh dropping to one member", 1, 2, true},
+		{"probed mesh emptied", 0, 1, true},
+		{"probed mesh staying viable", 2, 3, false},
+		{"unprobed mesh may shrink freely", 1, 0, false},
+		{"unprobed mesh may empty", 0, 0, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := ValidateMeshMemberRemoval("edge", c.membersAfter, c.templates)
+			if c.wantRefusal != (len(got) > 0) {
+				t.Fatalf("ValidateMeshMemberRemoval(%d, %d) = %v, want refusal %v",
+					c.membersAfter, c.templates, got, c.wantRefusal)
+			}
+			if !c.wantRefusal {
+				return
+			}
+			// The operator needs the way out, not just the refusal.
+			joined := strings.Join(got, "; ")
+			for _, want := range []string{`"edge"`, "delete the probe"} {
+				if !strings.Contains(joined, want) {
+					t.Errorf("message %q missing %q", joined, want)
+				}
+			}
+		})
 	}
 }

@@ -486,3 +486,137 @@ func slicesEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// TestConfigProbeMeshDNSWarning pins that the mesh-dns advisory reaches the
+// API caller on the SUCCESS path. It must not block the create — the UI
+// shows it so an operator learns what the probe will actually query before
+// waiting for a dashboard that never fills in.
+func TestConfigProbeMeshDNSWarning(t *testing.T) {
+	f := newFakeDB()
+	h := newTestAPI(t, f)
+	cookie, csrf := configLogin(t, h, f, "admin")
+
+	w := doConfig(t, h, "POST", "/api/v1/config/probes",
+		`{"mesh":"edge","type":"dns","interval_ms":60000,"timeout_ms":5000,"params":{"dns.qname":"example.internal"}}`,
+		cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("mesh dns create = %d, want 200 (advisory, not a rejection): %s", w.Code, w.Body)
+	}
+	var got struct {
+		ID       string   `json:"id"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ID == "" {
+		t.Error("a warned create must still return the new probe id")
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "dns.resolver") {
+		t.Fatalf("warnings = %v, want one naming dns.resolver", got.Warnings)
+	}
+
+	// An explicit resolver is a deliberate choice: no warning, same 200.
+	w = doConfig(t, h, "POST", "/api/v1/config/probes",
+		`{"mesh":"edge","type":"dns","interval_ms":60000,"timeout_ms":5000,`+
+			`"params":{"dns.qname":"example.internal","dns.resolver":"10.0.0.53:53"}}`,
+		cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("resolver-scoped mesh dns = %d, want 200: %s", w.Code, w.Body)
+	}
+	if strings.Contains(w.Body.String(), "warnings") {
+		t.Errorf("explicit dns.resolver must not warn: %s", w.Body)
+	}
+
+	// Probes with nothing to flag carry no warnings key at all.
+	w = doConfig(t, h, "POST", "/api/v1/config/probes", validDirectProbe, cookie, csrf)
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "warnings") {
+		t.Errorf("unremarkable probe = %d with body %s, want 200 and no warnings key", w.Code, w.Body)
+	}
+}
+
+// TestConfigProbePutMeshDNSWarning pins that the advisory survives the EDIT
+// path. Params are editable in place, so clearing dns.resolver on an existing
+// mesh dns probe reaches the same broken configuration a create would — a
+// warning only on POST would be trivially bypassed by the normal edit flow.
+func TestConfigProbePutMeshDNSWarning(t *testing.T) {
+	f := newFakeDB()
+	h := newTestAPI(t, f)
+	cookie, csrf := configLogin(t, h, f, "admin")
+
+	// Create with an explicit resolver: no warning.
+	w := doConfig(t, h, "POST", "/api/v1/config/probes",
+		`{"mesh":"edge","type":"dns","interval_ms":60000,"timeout_ms":5000,`+
+			`"params":{"dns.qname":"example.internal","dns.resolver":"10.0.0.53:53"}}`,
+		cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", w.Code, w.Body)
+	}
+	if strings.Contains(w.Body.String(), "warnings") {
+		t.Fatalf("resolver-scoped create must not warn: %s", w.Body)
+	}
+	id := f.probes[0].ID
+
+	// Edit it to drop the resolver: same configuration a warned create makes.
+	w = doConfig(t, h, "PUT", "/api/v1/config/probes/"+id.String(),
+		`{"interval_ms":60000,"timeout_ms":5000,"params":{"dns.qname":"example.internal"}}`,
+		cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("edit = %d, want 200: %s", w.Code, w.Body)
+	}
+	var got struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "dns.resolver") {
+		t.Fatalf("edit warnings = %v, want one naming dns.resolver", got.Warnings)
+	}
+
+	// Restoring the resolver clears the advisory.
+	w = doConfig(t, h, "PUT", "/api/v1/config/probes/"+id.String(),
+		`{"interval_ms":60000,"timeout_ms":5000,`+
+			`"params":{"dns.qname":"example.internal","dns.resolver":"10.0.0.53:53"}}`,
+		cookie, csrf)
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "warnings") {
+		t.Errorf("restored resolver = %d with %s, want 200 and no warnings", w.Code, w.Body)
+	}
+}
+
+// TestConfigProbeDisabledSuppressesWarning pins that stopping a probe does
+// not lecture the operator about what it would have queried. A disabled
+// probe measures nothing, so the advisory would describe a run that will
+// never happen.
+func TestConfigProbeDisabledSuppressesWarning(t *testing.T) {
+	f := newFakeDB()
+	h := newTestAPI(t, f)
+	cookie, csrf := configLogin(t, h, f, "admin")
+
+	w := doConfig(t, h, "POST", "/api/v1/config/probes",
+		`{"mesh":"edge","type":"dns","interval_ms":60000,"timeout_ms":5000,"params":{"dns.qname":"a.internal"}}`,
+		cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", w.Code, w.Body)
+	}
+	id := f.probes[0].ID
+
+	body := `{"interval_ms":60000,"timeout_ms":5000,"params":{"dns.qname":"a.internal"},"enabled":%s}`
+	w = doConfig(t, h, "PUT", "/api/v1/config/probes/"+id.String(), fmt.Sprintf(body, "false"), cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("disable = %d: %s", w.Code, w.Body)
+	}
+	if strings.Contains(w.Body.String(), "warnings") {
+		t.Errorf("disabling must not warn about what the probe would query: %s", w.Body)
+	}
+
+	// Re-enabling the same configuration warns again: that is the moment an
+	// upgraded installation first hears about it.
+	w = doConfig(t, h, "PUT", "/api/v1/config/probes/"+id.String(), fmt.Sprintf(body, "true"), cookie, csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("enable = %d: %s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), "dns.resolver") {
+		t.Errorf("re-enabling a warned config must warn: %s", w.Body)
+	}
+}

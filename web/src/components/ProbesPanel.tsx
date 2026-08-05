@@ -179,6 +179,7 @@ export default function ProbesPanel({
   const [draft, setDraft] = useState<ProbeDraft | null>(null)
   const [formErrors, setFormErrors] = useState<string[]>([])
   const [savedFlash, setSavedFlash] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
 
   // Inline edit
   const [editID, setEditID] = useState<string | null>(null)
@@ -235,7 +236,15 @@ export default function ProbesPanel({
     setBusy(true)
     try {
       const assignment = draft.mode === 'mesh' ? { mesh: draft.mesh } : { site: draft.site, target: draft.target }
-      await apiPost('/api/v1/config/probes', { ...assignment, type: draft.type, ...body })
+      const res = await apiPost<{ warnings?: string[] }>('/api/v1/config/probes', {
+        ...assignment,
+        type: draft.type,
+        ...body,
+      })
+      // The probe was created; warnings describe what it will actually
+      // measure when that is unlikely to match the intent. They persist
+      // until the next create, since the form closes on success.
+      setWarnings(res.warnings ?? [])
       setDraft(null)
       setSavedFlash(true)
       await reload()
@@ -255,7 +264,14 @@ export default function ProbesPanel({
     if (!body) return
     setBusy(true)
     try {
-      await apiPut('/api/v1/config/probes/' + p.id, { ...body, enabled: p.enabled })
+      const res = await apiPut<{ warnings?: string[] }>('/api/v1/config/probes/' + p.id, {
+        ...body,
+        enabled: p.enabled,
+      })
+      // An edit can reach the same questionable configuration a create can
+      // (clearing dns.resolver on a mesh dns probe, say), so it reports the
+      // same advisory rather than saving silently.
+      setWarnings(res.warnings ?? [])
       setEditID(null)
       setEditDraft(null)
       await reload()
@@ -271,7 +287,7 @@ export default function ProbesPanel({
     setBusy(true)
     setRowError('')
     try {
-      await apiPut('/api/v1/config/probes/' + p.id, {
+      const res = await apiPut<{ warnings?: string[] }>('/api/v1/config/probes/' + p.id, {
         interval_ms: p.interval_ms,
         timeout_ms: p.timeout_ms,
         train_count: p.train_count,
@@ -279,6 +295,10 @@ export default function ProbesPanel({
         params: p.params,
         enabled,
       })
+      // Re-enabling a probe configured before the advisory existed is the
+      // one moment an upgraded installation hears about it, so this write
+      // reports warnings like the others.
+      setWarnings(res.warnings ?? [])
       await reload()
     } catch (err) {
       onAuthError(err)
@@ -452,6 +472,19 @@ export default function ProbesPanel({
           <ul className="error threshold-errors">
             <li>{rowError}</li>
           </ul>
+        )}
+        {warnings.length > 0 && (
+          <div className="inline-alert" role="status">
+            <strong>Saved, with a caveat.</strong>
+            <ul>
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+            <button className="linklike" onClick={() => setWarnings([])}>
+              Dismiss
+            </button>
+          </div>
         )}
         {probes.length === 0 ? (
           <div className="empty-state">
