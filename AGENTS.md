@@ -17,13 +17,14 @@ design documentation in `docs/`. Go dependencies are committed in `vendor/`.
 - `make lint`: run `go vet` and `staticcheck` when installed.
 - `make up` / `make down`: manage the base Compose stack and required dev
   overlay.
-- `make web`: install pinned npm dependencies, lint and format-check the SPA
-  sources, then rebuild `web/dist/`.
+- `make web`: install pinned dependencies with pnpm (14-day
+  minimum-release-age policy in `web/pnpm-workspace.yaml`), lint and
+  format-check the SPA sources, then rebuild `web/dist/`.
 - `make web-fix`: apply oxlint autofixes and reformat with oxfmt.
 - `make proto`: regenerate protobuf and gRPC code in `internal/pb/`.
 
-After starting the stack, use `cd web && npm run dev` for Vite. Never run the
-base Compose file alone for development.
+After starting the stack, use `cd web && pnpm run dev` for Vite. Never run
+the base Compose file alone for development.
 
 ## Coding Style & Naming Conventions
 

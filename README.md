@@ -73,7 +73,7 @@ Regenerating vendored artifacts (dev-time only, needs tooling/network):
 
 ```
 make proto        # regenerate internal/pb from proto/ (buf)
-make web          # rebuild web/dist from web/src (node)
+make web          # rebuild web/dist from web/src (node + pnpm)
 make vendor       # re-vendor Go dependencies
 ```
 

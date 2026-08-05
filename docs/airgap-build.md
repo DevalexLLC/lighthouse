@@ -12,7 +12,7 @@ from the network:
 |---|---|---|
 | `vendor/` | module downloads | `make vendor` (network, dev-only) |
 | `internal/pb/` | protoc/buf codegen | `make proto` (host buf, dev-only) |
-| `web/dist/` | npm + Vite build | `make web` (npm, dev-only) |
+| `web/dist/` | pnpm + Vite build | `make web` (pnpm, dev-only) |
 
 `make build` / `make test` always pass `-mod=vendor`; the SPA is embedded
 via `go:embed all:dist`. Regeneration targets are the only ones allowed to
@@ -28,10 +28,12 @@ warm-cache environment. Locally the same check is:
 GOFLAGS=-mod=vendor GOPROXY=off GOTOOLCHAIN=local make build test
 ```
 
-The sibling `web-lint` job does install from the npm registry. That is not a
-hole in the guarantee: it lints and format-checks SPA *sources*, which are
-dev-time inputs. What ships is `web/dist/`, built by hand with `make web` and
-committed — no release path ever runs npm.
+The sibling `web-lint` job does install from the npm registry (via pnpm,
+under the 14-day minimum-release-age policy in `web/pnpm-workspace.yaml`).
+That is not a hole in the guarantee: it lints and format-checks SPA
+*sources*, which are dev-time inputs. What ships is `web/dist/`, built by
+hand with `make web` and committed — no release path ever runs a package
+manager.
 
 Container image builds compile from vendor the same way, but are NOT
 zero-network: besides pulling the golang/alpine/nginx base images, the

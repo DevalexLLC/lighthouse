@@ -111,10 +111,10 @@ proto:
 # committed web/dist can be regenerated, so it is also where style problems
 # must surface. `make web-fix` auto-fixes what it can.
 web:
-	cd web && npm ci && npm run lint && npm run fmt:check && npm run build
+	cd web && pnpm install --frozen-lockfile && pnpm run lint && pnpm run fmt:check && pnpm run build
 
 web-fix:
-	cd web && npm run lint:fix && npm run fmt
+	cd web && pnpm run lint:fix && pnpm run fmt
 
 vendor:
 	$(GO) mod tidy

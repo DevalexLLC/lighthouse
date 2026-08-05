@@ -75,7 +75,15 @@ with a pointer here, so please read this list first.
   prober. Traceroute strictly requires a raw socket.
 - **CI's `web-lint` job installs from the npm registry.** It lints SPA
   sources, which are dev-time inputs — the committed `web/dist/` is what
-  ships, and no release path runs npm.
+  ships, and no release path runs a package manager. Those installs go
+  through pnpm under a 14-day minimum-release-age policy
+  (`web/pnpm-workspace.yaml`): a freshly published package version cannot
+  be resolved until it has been public for two weeks, which blunts
+  fast-moving registry supply-chain attacks. The committed
+  `pnpm-lock.yaml` is the trusted base, so lockfile diffs in PRs are
+  security-relevant and must be reviewed as such. pnpm itself is pinned by
+  version and integrity hash in `web/package.json`'s `packageManager`
+  field.
 
   To be precise about the air-gap guarantee, because it is narrower than
   it sounds: `offline-build` proves the Go binaries compile and test with

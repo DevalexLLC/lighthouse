@@ -46,7 +46,7 @@ Full design + milestone plan: `docs/architecture.md`.
   services).
 - Regenerate protos: `make proto` (buf + protoc-gen-go{,-grpc} in ~/go/bin),
   commit the diff under `internal/pb/`.
-- SPA style: `make web` now runs `npm run lint && npm run fmt:check` BEFORE
+- SPA style: `make web` runs `pnpm run lint && pnpm run fmt:check` BEFORE
   building, so a finding or an unformatted file blocks the dist rebuild;
   `make web-fix` = `oxlint --fix` + `oxfmt`. `make lint` is untouched
   (Go-only, offline — CONTRIBUTING.md promises that).
@@ -419,17 +419,44 @@ Full design + milestone plan: `docs/architecture.md`.
   percentiles present); 24h raw with percentile keys absent;
   matrix/outages regression-clean (tcp `conn_refused` cells + 6 open
   `probe_failing` are the dev mesh's intentional port-9 TCP probe).
+- SPA package manager is pnpm (2026-08-05, response to the keyv/cacheable
+  npm worm of 2026-08-04): pnpm 11.15.1 pinned by version + sha512 in
+  `web/package.json`'s `packageManager` field (bootstrap: `corepack enable
+  pnpm` — corepack verifies the hash; 11.15.1 chosen as the newest release
+  itself ≥14 days old at migration). `web/pnpm-workspace.yaml` enforces
+  `minimumReleaseAge: 20160` (14 days) + `minimumReleaseAgeStrict` +
+  `minimumReleaseAgeIgnoreMissingTime: false`: NO newly published version
+  can resolve, transitives included — `pnpm add` floors ranged requests to
+  the newest mature version and hard-fails exact young pins.
+  `trustLockfile: true` (user decision): the committed `pnpm-lock.yaml`
+  (generated via `pnpm import` from the pre-attack package-lock, byte-level
+  version parity verified) is the trusted base, so LOCKFILE DIFFS IN PRS
+  ARE SECURITY-RELEVANT. A dated `minimumReleaseAgeExclude` block exempts
+  the exact pre-attack pins (oxlint/oxfmt + bindings, postcss,
+  @napi-rs/wasm-runtime) because add/update re-resolves ALL direct deps
+  through the gate — REMOVE that block after 2026-08-17. A
+  `peerDependencyRules.allowedVersions` entry accepts @emnapi 1.x for
+  @napi-rs/wasm-runtime (pnpm auto-installs peers from `latest`, and the
+  wasm32 subtree never installs anyway). `npm ci`/`npx` are gone;
+  package-lock.json is deleted so npm can't silently bypass the policy.
 - SPA linting/formatting (2026-08-03): oxlint 1.77.0 + oxfmt 0.62.0, both
   exact-pinned; their platform binaries are os/cpu-guarded optional deps, so
-  `package-lock.json` carries all 19+19 bindings exactly like TypeScript 7's.
-  `web/.oxfmtrc.json` = printWidth 120, 2-space, single quotes, no
-  semicolons, trailing commas — and `sortPackageJson: false`, which defaults
-  ON and would otherwise reorder package.json keys npm owns. Formatting
-  covers TS/TSX/CSS/HTML/loose JS; `src/assets/mapGeo.ts` is excluded from
-  BOTH tools because regenerating it via `tools/build-map-geo.mjs` would
-  immediately drift from formatted output. `web/.nvmrc` (24) is the single
-  node pin, read by CI's `web-lint` job — that job runs `npm ci` and is the
-  one CI check deliberately outside the offline guarantee (it gates sources,
+  `pnpm-lock.yaml` carries all 19+19 bindings exactly like TypeScript 7's
+  (the pnpm lockfile records every platform variant regardless of the
+  machine that generated it). `web/.oxfmtrc.json` = printWidth 120, 2-space,
+  single quotes, no semicolons, trailing commas — and `sortPackageJson:
+  false`, which defaults ON and would otherwise reorder package.json keys
+  npm/pnpm own. Formatting covers TS/TSX/CSS/HTML/loose JS AND YAML
+  (pnpm-workspace.yaml is formatted; machine-written pnpm-lock.yaml is
+  ignorePatterns'd); `src/assets/mapGeo.ts` is excluded from BOTH tools
+  because regenerating it via `tools/build-map-geo.mjs` would immediately
+  drift from formatted output. `web/.nvmrc` (24) is the single node pin,
+  read by CI's `web-lint` job — that job bootstraps pnpm via corepack
+  (`corepack enable pnpm` + `corepack install`, which verifies the
+  packageManager +sha512; pnpm/action-setup is deliberately NOT used — it
+  strips the hash and installs unverified), caches the pnpm store with
+  actions/cache, runs `pnpm install --frozen-lockfile`, and is the one CI
+  check deliberately outside the offline guarantee (it gates sources,
   never release artifacts; still NO dist-drift gate). Rule names differ from
   ESLint's: hooks rules live under the `react` plugin (`react/rules-of-hooks`,
   `react/exhaustive-deps`), and `plugins` REPLACES the default set (core
@@ -488,17 +515,17 @@ Full design + milestone plan: `docs/architecture.md`.
   correctness is compose-gate territory.
 - UI changes: edit `web/src/`, then `make web` and commit the regenerated
   `web/dist/` in the SAME commit (go:embed all:dist — a missing/stale dist
-  breaks or lies). Dev loop: `make up` + `cd web && npm run dev` (Vite
+  breaks or lies). Dev loop: `make up` + `cd web && pnpm run dev` (Vite
   proxies /api to https://localhost:9443). Dev dashboard login:
   `admin`/`lighthouse-dev` (seeded by bootstrap).
 - Typechecking is TypeScript 7 (the native Go port; `typescript` pulls a
   per-platform binary from 20 `@typescript/typescript-*` optional deps —
-  all 20 are in `package-lock.json` with `os`/`cpu` guards, so `npm ci`
+  all 20 are in `pnpm-lock.yaml` with `os`/`cpu` guards, so `pnpm install`
   resolves on any dev machine). TS 7 errors (TS2882) on side-effect
   imports of modules with no declarations, which is why `src/vite-env.d.ts`
   (`/// <reference types="vite/client" />`) exists — it supplies the
   `declare module '*.css'` that `src/main.tsx`'s two CSS imports need.
-  Deleting it breaks `npm run build`, not just the editor. Emitted `dist/`
+  Deleting it breaks `pnpm run build`, not just the editor. Emitted `dist/`
   bytes are unchanged by the compiler swap: Vite transpiles with its own
   bundler and only ever runs `tsc -b` as a gate.
 ### M4 notes worth knowing

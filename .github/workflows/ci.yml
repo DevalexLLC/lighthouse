@@ -7,9 +7,9 @@
 #   - proto regen drift: buf is NOT vendored (the Makefile's `go run` branch
 #     falls back to a host binary) and plugin versions are unpinned, so a CI
 #     regen would produce false diffs. Vendor + pin buf first.
-#   - web/dist drift: `npm ci` + build nondeterminism across environments
-#     makes byte-comparing dist/ noisy; the committed dist is covered by
-#     review instead.
+#   - web/dist drift: `pnpm install` + build nondeterminism across
+#     environments makes byte-comparing dist/ noisy; the committed dist is
+#     covered by review instead.
 name: ci
 
 on:
@@ -44,7 +44,8 @@ jobs:
   # Style gate for the SPA sources. This job installs from the npm registry,
   # which is fine: it checks dev tooling, not release artifacts. The air-gap
   # guarantee lives entirely in offline-build above, and web/dist is built
-  # and committed by hand via `make web`.
+  # and committed by hand via `make web`. pnpm enforces the 14-day
+  # minimum-release-age supply-chain policy from web/pnpm-workspace.yaml.
   web-lint:
     runs-on: ubuntu-latest
     defaults:
@@ -55,13 +56,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
+      # Corepack (bundled with Node 24) installs the pnpm pinned in
+      # web/package.json's packageManager field and verifies its +sha512
+      # integrity before running it — the same fail-closed bootstrap dev
+      # machines use. Deliberately NOT pnpm/action-setup: it strips the
+      # hash (`version.split('+')[0]`) and installs unverified.
+      - name: Install pinned pnpm via corepack
+        run: |
+          corepack enable pnpm
+          corepack install
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
       - name: Format check
-        run: npm run fmt:check
+        run: pnpm run fmt:check
 
   docker-build:
     runs-on: ubuntu-latest
