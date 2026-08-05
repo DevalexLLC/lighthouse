@@ -49,3 +49,12 @@ finding or unformatted file before it rebuilds `web/dist/`, and CI's
 `web-lint` job repeats both checks. That job installs from the npm registry
 — it gates dev tooling, so it sits outside the offline guarantee that
 `offline-build` enforces for everything shipped.
+
+The SPA uses pnpm, pinned with an integrity hash in `web/package.json`'s
+`packageManager` field. One-time setup on Node 24: `corepack enable pnpm`
+(corepack ships with Node 24; from Node 25 it needs `npm i -g corepack`
+first). `web/pnpm-workspace.yaml` enforces a supply-chain policy: no
+package version younger than 14 days is ever resolved
+(`minimumReleaseAge`), strictly — a too-young resolution fails loudly
+instead of falling back. The committed `pnpm-lock.yaml` is the trusted
+base, which makes lockfile diffs in PRs security-relevant: review them.

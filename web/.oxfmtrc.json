@@ -10,7 +10,7 @@
     "dist/**",
     "node_modules/**",
     "src/assets/mapGeo.ts",
-    "package-lock.json",
+    "pnpm-lock.yaml",
     "tsconfig.tsbuildinfo",
     "public/fonts/**"
   ]
