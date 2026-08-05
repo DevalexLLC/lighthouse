@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -312,6 +313,11 @@ func cmdProbe(args []string) error {
 			return err
 		}
 		fmt.Printf("probe %s added\n", id)
+		// Advisory, on stderr so it stays out of piped output while
+		// remaining impossible to miss on a terminal.
+		for _, warning := range probeadmin.Warnings(probeType, meshMode, params) {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
 		return nil
 
 	case "list":

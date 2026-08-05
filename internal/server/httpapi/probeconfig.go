@@ -236,6 +236,9 @@ type probeCfgJSON struct {
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	UpdatedBy      string            `json:"updated_by,omitempty"`
+	// Warnings is advisory and set only on a write response; list payloads
+	// omit it entirely.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func toProbeCfgJSON(p store.ProbeConfigInfo) probeCfgJSON {
@@ -342,7 +345,14 @@ func (a *api) handleProbePost(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, "add probe", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"id": id.String()})
+	// Advisory only: the probe was created. Warnings ride the success
+	// response so the UI can show what the configuration will actually
+	// measure when that differs from the likely intent.
+	out := map[string]any{"id": id.String()}
+	if warnings := probeadmin.Warnings(probeType, meshMode, in.Params); len(warnings) > 0 {
+		out["warnings"] = warnings
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *api) handleProbePut(w http.ResponseWriter, r *http.Request) {
@@ -400,7 +410,17 @@ func (a *api) handleProbePut(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, "get probe", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toProbeCfgJSON(*updated))
+	// Edits reach the same configurations creates do — clearing
+	// "dns.resolver" on a mesh dns probe is an edit, not a create — so the
+	// advisory has to ride this response too or the warning is trivially
+	// bypassed by the normal edit path. A disabled probe measures nothing,
+	// so describing what it would query would be noise on the one write
+	// that just stopped it.
+	out := toProbeCfgJSON(*updated)
+	if enabled {
+		out.Warnings = probeadmin.Warnings(probeType, current.Mesh != "", in.Params)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *api) handleProbeDelete(w http.ResponseWriter, r *http.Request) {

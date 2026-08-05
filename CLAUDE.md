@@ -180,6 +180,33 @@ Full design + milestone plan: `docs/architecture.md`.
   carry no address; `store.ErrInvalid` → 400, UI filters the picker to
   external).
 
+- Mesh viability + advisories (2026-08-05, `probeadmin` so CLI + API agree):
+  a mesh expands over ordered pairs of DISTINCT sites, so a one-site mesh
+  produced ZERO probes — agents got an empty list, dashboards read "none
+  yet" forever, nothing errored. `MinMeshMembers = 2` now guards both
+  routes to that state: `AddMeshProbe` refuses (`ErrInvalid` → 400) and
+  `RemoveMeshMember` refuses (`ErrConflict` → 409) when the removal would
+  strand probe templates — narrow on purpose, an UNPROBED mesh may shrink
+  or empty freely, and a non-member still gets 404. `probeadmin.Warnings`
+  is a separate advisory channel that never blocks: today it flags mesh
+  `dns` without `dns.resolver`, because mesh expansion points the prober
+  at the peer AGENT's address on port 53 (legitimate only when agent hosts
+  really run resolvers — hence a warning, not an error). Warnings ride the
+  POST and PUT success responses (`warnings`, omitempty; suppressed when
+  the write leaves the probe disabled), the CLI prints them to stderr, and
+  ProbesPanel shows a dismissible "Saved, with a caveat" banner on create,
+  edit, AND enable — the enable path is where an upgraded install first
+  hears about a pre-existing bad config. Concurrency: `lockMesh` takes the
+  mesh row `FOR NO KEY UPDATE` and EVERY mesh path (add/remove member, add
+  probe, delete group) takes it FIRST, before touching series rows —
+  one lock order, or member-removal (mesh→series) deadlocks against
+  group-delete (series→mesh). The mode is deliberate: `FOR UPDATE` also
+  conflicts with the `FOR KEY SHARE` that probe_configs/mesh_members DML
+  takes on the parent row, which re-creates the inversion against paths
+  that never call `lockMesh` (deleting a probe config cleans series, then
+  touches the parent via its FK). None of this SQL is exercised by the
+  offline fakes — verify guard changes against a real migrated DB.
+
 - Template-theme refactor (2026-08-03): the whole dashboard was restyled to
   a shadcn-flavored admin look (zinc neutrals, hairline borders, indigo
   `--accent`, 8/12 px radii, `--shadow-card` on light only) via retokenized

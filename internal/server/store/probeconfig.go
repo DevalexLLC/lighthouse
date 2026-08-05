@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/devalexllc/lighthouse/internal/server/probeadmin"
 	"github.com/devalexllc/lighthouse/internal/server/probeid"
 )
 
@@ -230,6 +233,35 @@ func (s *Store) meshIDByName(ctx context.Context, name string) (uuid.UUID, error
 	return id, nil
 }
 
+// lockMesh takes the mesh group's row lock. Membership mutations, mesh probe
+// creation, and mesh deletion all take it FIRST, before touching series rows,
+// so the "does this mesh have enough members" decision is serialized and
+// every path locks in the same order. Without the shared order a member
+// removal (mesh row, then series) racing a mesh delete (series, then mesh
+// row) deadlocks and Postgres aborts one at random.
+//
+// FOR NO KEY UPDATE, not FOR UPDATE: this only needs to exclude the other
+// callers of lockMesh. FOR UPDATE would additionally conflict with the
+// FOR KEY SHARE that any insert or delete on probe_configs / mesh_members
+// takes on its parent mesh row, which reintroduces the same inversion
+// against paths that never call lockMesh at all (deleting a probe config
+// cleans series rows, then touches the parent row via its foreign key).
+// The name is carried only for the error text: meshIDByName resolves outside
+// this transaction, so a mesh deleted in the gap is gone by the time the lock
+// is taken. That is a not-found, not an internal error — every caller must
+// answer 404 for it, exactly as an already-missing mesh does.
+func lockMesh(ctx context.Context, tx pgx.Tx, meshID uuid.UUID, name string) error {
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT id FROM mesh_groups WHERE id = $1 FOR NO KEY UPDATE`, meshID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notFoundf("mesh group %q does not exist", name)
+	}
+	if err != nil {
+		return fmt.Errorf("lock mesh group %q: %w", name, err)
+	}
+	return nil
+}
+
 // AddMeshMember adds a site to a mesh group. Idempotent.
 func (s *Store) AddMeshMember(ctx context.Context, meshName, siteName string) error {
 	meshID, err := s.meshIDByName(ctx, meshName)
@@ -240,13 +272,21 @@ func (s *Store) AddMeshMember(ctx context.Context, meshName, siteName string) er
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("add %q to mesh %q: %w", siteName, meshName, err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockMesh(ctx, tx, meshID, meshName); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
 		INSERT INTO mesh_members (mesh_id, site_id) VALUES ($1, $2)
 		ON CONFLICT DO NOTHING`, meshID, siteID)
 	if err != nil {
 		return fmt.Errorf("add %q to mesh %q: %w", siteName, meshName, err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // RemoveMeshMember removes a site from a mesh group and cleans up the
@@ -267,6 +307,9 @@ func (s *Store) RemoveMeshMember(ctx context.Context, meshName, siteName string)
 		return fmt.Errorf("remove %q from mesh %q: %w", siteName, meshName, err)
 	}
 	defer tx.Rollback(ctx)
+	if err := lockMesh(ctx, tx, meshID, meshName); err != nil {
+		return err
+	}
 
 	templates, err := meshTemplateTypes(ctx, tx, meshID)
 	if err != nil {
@@ -275,6 +318,15 @@ func (s *Store) RemoveMeshMember(ctx context.Context, meshName, siteName string)
 	members, err := meshMemberSiteIDs(ctx, tx, meshID)
 	if err != nil {
 		return fmt.Errorf("remove %q from mesh %q: %w", siteName, meshName, err)
+	}
+	// Removing a member is the other way to reach a mesh that cannot expand.
+	// Only guard an actual member: a site that is not in the mesh changes no
+	// count and must still get the not-found answer below.
+	if slices.Contains(members, siteID) {
+		problems := probeadmin.ValidateMeshMemberRemoval(meshName, len(members)-1, len(templates))
+		if len(problems) > 0 {
+			return conflictf("%s", strings.Join(problems, "; "))
+		}
 	}
 	var ids []uuid.UUID
 	for _, typ := range templates {
@@ -342,6 +394,12 @@ func (s *Store) DeleteMeshGroup(ctx context.Context, name string) (int64, error)
 		return 0, fmt.Errorf("delete mesh %q: %w", name, err)
 	}
 	defer tx.Rollback(ctx)
+	// Before any series row, matching RemoveMeshMember and AddMeshProbe —
+	// cleaning up first and letting the DELETE take the mesh row last would
+	// invert the order and deadlock against them.
+	if err := lockMesh(ctx, tx, meshID, name); err != nil {
+		return 0, err
+	}
 
 	templates, err := meshTemplateTypes(ctx, tx, meshID)
 	if err != nil {
@@ -405,14 +463,38 @@ func (s *Store) AddMeshProbe(ctx context.Context, meshName string, ps ProbeSetti
 	if err != nil {
 		return uuid.Nil, err
 	}
+	// Count and insert are one locked decision: the mesh row lock is shared
+	// with AddMeshMember/RemoveMeshMember, so membership cannot shift under
+	// this check, and the refusal reports the exact count it refused on.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("add mesh probe: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockMesh(ctx, tx, meshID, meshName); err != nil {
+		return uuid.Nil, err
+	}
+
+	var members int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM mesh_members WHERE mesh_id = $1`, meshID).Scan(&members); err != nil {
+		return uuid.Nil, fmt.Errorf("add mesh probe: count members: %w", err)
+	}
+	if problems := probeadmin.ValidateMeshMembers(meshName, members); len(problems) > 0 {
+		return uuid.Nil, invalidf("%s", strings.Join(problems, "; "))
+	}
+
 	var id uuid.UUID
-	err = s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO probe_configs (mesh_id, probe_type, interval_ms, timeout_ms, train_count, train_spacing_ms, params, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`,
 		meshID, ps.ProbeType, ps.Interval.Milliseconds(), ps.Timeout.Milliseconds(),
 		ps.TrainCount, ps.TrainSpacing.Milliseconds(), ps.Params, updatedBy).Scan(&id)
 	if err != nil {
+		return uuid.Nil, fmt.Errorf("add mesh probe: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return uuid.Nil, fmt.Errorf("add mesh probe: %w", err)
 	}
 	return id, nil
@@ -487,9 +569,9 @@ func (s *Store) UpdateProbeConfig(ctx context.Context, id uuid.UUID, ps ProbeSet
 	defer tx.Rollback(ctx)
 
 	var (
-		meshID          *uuid.UUID
-		probeType       int16
-		wasEnabled      bool
+		meshID     *uuid.UUID
+		probeType  int16
+		wasEnabled bool
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT mesh_id, probe_type, enabled FROM probe_configs WHERE id = $1 FOR UPDATE`,
