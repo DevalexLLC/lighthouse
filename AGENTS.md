@@ -62,7 +62,13 @@ outputs. Include screenshots for visible dashboard changes and commit updated
 
 ## Security & Configuration
 
-Runtime binaries must have no external dependencies or network access. Package
-every required artifact so installation and operation remain fully disconnected
-in air-gapped environments. Treat shipped SQL migrations as immutable and never
-reuse development credentials in production.
+Runtime binaries must have no external dependencies, and no network access
+beyond what an operator explicitly configures. The one sanctioned exception is
+the optional, default-off OIDC single sign-on: the server calls the
+admin-configured identity provider at SSO login time and when an admin runs
+the settings Test connection action (see `docs/install.md`); startup, local
+login, and probing never depend on it.
+Package every required artifact so installation and operation remain fully
+disconnected in air-gapped environments — such sites simply leave SSO
+disabled. Treat shipped SQL migrations as immutable and never reuse
+development credentials in production.

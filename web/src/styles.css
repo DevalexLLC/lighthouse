@@ -364,6 +364,84 @@ button.linklike:hover {
   cursor: default;
 }
 
+/* SSO entry: a deliberate secondary treatment so the accent submit button
+   stays the primary action. */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.35rem 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.login-card .sso-button {
+  padding: 0.6rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.login-card .sso-button:hover {
+  background: var(--bg);
+}
+
+/* Settings → Authentication */
+.oidc-admin-values textarea {
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.5rem 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
+.oidc-admin-values .hint,
+.oidc-capem .hint {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.oidc-capem textarea {
+  width: 100%;
+  max-width: 46rem;
+  padding: 0.5rem 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
+.oidc-enable .threshold-input {
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.oidc-test-result {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
 /* ---- page scaffolding ---- */
 
 .page-head {

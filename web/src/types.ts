@@ -308,3 +308,50 @@ export interface ProbeTypeInfo {
 export interface ProbeTypesResponse {
   types: ProbeTypeInfo[]
 }
+
+// GET /api/v1/auth/providers — advertised before any session exists, so the
+// login page knows whether to offer single sign-on.
+export interface AuthProviders {
+  oidc: { enabled: boolean }
+}
+
+// GET/PUT /api/v1/settings/oidc (admin-only). The client secret is
+// write-only: reads carry only client_secret_set.
+export interface OIDCSettings {
+  enabled: boolean
+  issuer: string
+  client_id: string
+  client_secret_set: boolean
+  redirect_url: string
+  scopes: string[]
+  username_claim: string
+  role_claim: string
+  admin_values: string[]
+  ca_pem: string
+  updated_at: string
+  updated_by: string
+  warnings?: string[]
+}
+
+export interface OIDCSettingsPut {
+  enabled: boolean
+  issuer: string
+  client_id: string
+  // Empty string means "keep the stored secret".
+  client_secret: string
+  redirect_url: string
+  scopes: string[]
+  username_claim: string
+  role_claim: string
+  admin_values: string[]
+  ca_pem: string
+}
+
+// POST /api/v1/settings/oidc/test — the IdP's advertised endpoints.
+export interface OIDCDiscoveryInfo {
+  issuer: string
+  authorization_endpoint: string
+  token_endpoint: string
+  jwks_uri: string
+  userinfo_endpoint?: string
+}

@@ -18,6 +18,14 @@ from the network:
 via `go:embed all:dist`. Regeneration targets are the only ones allowed to
 touch the network, and their outputs are committed in the same change.
 
+The guarantee covers builds, not every runtime feature: the optional,
+default-off OIDC single sign-on (`docs/install.md`) makes the server call
+an admin-configured identity provider — at SSO login time, and immediately
+when an admin runs the settings page's Test connection action. That is
+deliberate, admin-opted-in egress; nothing in the build or startup path
+depends on it, and fully air-gapped installations simply leave it (and the
+test button) alone.
+
 CI enforces the guarantee on every PR (`.github/workflows/ci.yml`): the
 `offline-build` job runs `make build test vet` with `GOPROXY=off` and
 `GOTOOLCHAIN=local`, so any dependency missing from `vendor/` — or a new

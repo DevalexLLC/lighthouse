@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, apiGet, apiPost, setCsrfToken } from './api'
-import type { LoginResponse, User } from './types'
+import type { AuthProviders, LoginResponse, User } from './types'
 import LogoMark from './components/LogoMark'
 import ThemeToggle from './components/ThemeToggle'
 import Agents from './views/Agents'
@@ -13,9 +13,9 @@ import Settings from './views/Settings'
 
 // Hash routing stays dependency-free and preserves the original route names
 // as aliases, so bookmarks survive the information-architecture cleanup.
-export type SettingsTab = 'thresholds' | 'targets' | 'meshes' | 'probes'
+export type SettingsTab = 'thresholds' | 'targets' | 'meshes' | 'probes' | 'authentication'
 
-const SETTINGS_TABS: SettingsTab[] = ['thresholds', 'targets', 'meshes', 'probes']
+const SETTINGS_TABS: SettingsTab[] = ['thresholds', 'targets', 'meshes', 'probes', 'authentication']
 
 type Route =
   | { view: 'overview' }
@@ -55,6 +55,7 @@ const NAV: Array<{ href: string; label: string; isActive: (r: Route) => boolean 
 export default function App() {
   const [booted, setBooted] = useState(false)
   const [user, setUser] = useState<User | null>(null)
+  const [sso, setSso] = useState(false)
   const [route, setRoute] = useState<Route>(() => parseHash(location.hash))
 
   useEffect(() => {
@@ -73,6 +74,20 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setBooted(true))
   }, [])
+
+  // Learn whether to offer single sign-on every time the login screen is
+  // entered (boot without a session, and again after logout), so an admin
+  // toggling OIDC converges without a reload. A providers failure only
+  // hides the SSO button — local login must never depend on it.
+  useEffect(() => {
+    if (!booted || user !== null) return
+    apiGet<AuthProviders>('/api/v1/auth/providers')
+      .then((res) => setSso(res.oidc.enabled))
+      .catch((err) => {
+        console.warn('auth providers unavailable; hiding SSO login', err)
+        setSso(false)
+      })
+  }, [booted, user])
 
   // Any 401 from a view means the session died server-side: back to login.
   const onAuthError = useCallback((err: unknown) => {
@@ -100,6 +115,7 @@ export default function App() {
   if (!user) {
     return (
       <Login
+        sso={sso}
         onLogin={(res) => {
           setCsrfToken(res.csrf_token)
           setUser(res.user)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/devalexllc/lighthouse/internal/server/oidcauth"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -57,6 +58,19 @@ type DB interface {
 	ListOutages(ctx context.Context, window time.Duration) ([]store.OutageInfo, error)
 	ListPathEvents(ctx context.Context, window time.Duration) ([]store.PathEventInfo, error)
 	CurrentPaths(ctx context.Context, srcAgents, dstTargets []uuid.UUID) ([]store.CurrentPath, error)
+
+	GetOIDCSettings(ctx context.Context) (*store.OIDCSettings, error)
+	UpdateOIDCSettings(ctx context.Context, o store.OIDCSettings, keepSecret bool) (*store.OIDCSettings, error)
+	UpsertOIDCUser(ctx context.Context, subject, username, role string) (*store.UserInfo, error)
+}
+
+// OIDCProviders is the slice of oidcauth.Manager the handlers use — an
+// interface for the same reason DB is one: httpapi tests fake it, so no
+// test ever performs IdP discovery.
+type OIDCProviders interface {
+	Provider(ctx context.Context) (oidcauth.Provider, *store.OIDCSettings, error)
+	Test(ctx context.Context, cfg store.OIDCSettings) (*oidcauth.DiscoveryInfo, error)
+	Invalidate()
 }
 
 const (
@@ -70,6 +84,11 @@ const (
 type api struct {
 	db      db
 	limiter *loginLimiter
+	// ssoLimiter is deliberately separate from the local-login limiter:
+	// SSO round-trips (or a failing IdP) behind one NAT must never burn
+	// the break-glass password login's attempts.
+	ssoLimiter *loginLimiter
+	providers  OIDCProviders
 }
 
 // db wraps DB so internal helpers hang off a private type.
@@ -78,7 +97,17 @@ type db struct{ DB }
 // New returns the dashboard handler: /healthz (open), /api/v1 (sessions),
 // and the SPA from static for everything else.
 func New(sdb DB, static fs.FS) http.Handler {
-	a := &api{db: db{sdb}, limiter: newLoginLimiter(loginLimit, loginWindow)}
+	return newHandler(sdb, static, oidcauth.NewManager(sdb))
+}
+
+// newHandler is New with the OIDC manager injectable; tests pass a fake.
+func newHandler(sdb DB, static fs.FS, providers OIDCProviders) http.Handler {
+	a := &api{
+		db:         db{sdb},
+		limiter:    newLoginLimiter(loginLimit, loginWindow),
+		ssoLimiter: newLoginLimiter(loginLimit, loginWindow),
+		providers:  providers,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +117,11 @@ func New(sdb DB, static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.Handle("POST /api/v1/auth/logout", a.withSession(a.handleLogout))
 	mux.Handle("GET /api/v1/auth/me", a.withSession(a.handleMe))
+	// SSO: providers is open (the login page must know whether to offer the
+	// button); start/callback are open, rate-limited top-level navigations.
+	mux.HandleFunc("GET /api/v1/auth/providers", a.handleAuthProviders)
+	mux.HandleFunc("GET /api/v1/auth/oidc/start", a.handleOIDCStart)
+	mux.HandleFunc("GET /api/v1/auth/oidc/callback", a.handleOIDCCallback)
 	mux.Handle("GET /api/v1/sites", a.withSession(a.handleSites))
 	mux.Handle("GET /api/v1/agents", a.withSession(a.handleAgents))
 	mux.Handle("GET /api/v1/agents/health", a.withSession(a.handleAgentHealth))
@@ -102,6 +136,11 @@ func New(sdb DB, static fs.FS) http.Handler {
 	adminWrite := func(h http.HandlerFunc) http.Handler {
 		return a.withSession(requireRole("admin", h).ServeHTTP)
 	}
+	// OIDC settings: GET is admin-only too — issuer, claim mapping, and
+	// admin group names are IdP topology, not viewer material.
+	mux.Handle("GET /api/v1/settings/oidc", adminWrite(a.handleOIDCSettingsGet))
+	mux.Handle("PUT /api/v1/settings/oidc", adminWrite(a.handleOIDCSettingsPut))
+	mux.Handle("POST /api/v1/settings/oidc/test", adminWrite(a.handleOIDCSettingsTest))
 	mux.Handle("GET /api/v1/config/probe-types", a.withSession(a.handleProbeTypes))
 	mux.Handle("GET /api/v1/config/targets", a.withSession(a.handleTargetsGet))
 	mux.Handle("POST /api/v1/config/targets", adminWrite(a.handleTargetPost))

@@ -95,6 +95,15 @@ with a pointer here, so please read this list first.
   exactly which steps touch the network. Supply-chain concerns in that
   packaging path are in scope; please report them.
 
+  At runtime, the server performs outbound HTTP in exactly one optional,
+  default-off feature: OIDC single sign-on. The calls happen at SSO login
+  time once an admin has enabled a provider, and immediately when an
+  admin uses the settings page's Test connection action (which works
+  before enabling — it exists to prove connectivity). Local (break-glass)
+  login and server startup never depend on that egress. The OIDC client
+  secret is stored in the `oidc_settings` database table and is therefore
+  part of database backups.
+
 ## Hardening guidance
 
 Operator-facing security setup — TLS for the dashboard, firewall rules,

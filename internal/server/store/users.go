@@ -11,7 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// UserInfo is a users row.
+// UserInfo is a users row. PasswordHash is "" for federated (OIDC) users —
+// their password_hash column is NULL by CHECK constraint.
 type UserInfo struct {
 	ID           uuid.UUID
 	Username     string
@@ -19,6 +20,7 @@ type UserInfo struct {
 	Role         string
 	Disabled     bool
 	CreatedAt    time.Time
+	AuthSource   string // "local" or "oidc"
 }
 
 // SessionInfo is a sessions row joined with its user, as needed by the
@@ -56,9 +58,9 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (*UserInfo, error) {
 	var u UserInfo
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, username, password_hash, role, disabled, created_at
+		`SELECT id, username, COALESCE(password_hash, ''), role, disabled, created_at, auth_source
 		   FROM users WHERE username = $1`, username).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Disabled, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Disabled, &u.CreatedAt, &u.AuthSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
