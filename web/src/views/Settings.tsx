@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { apiGet } from '../api'
 import type { SettingsTab } from '../App'
 import MeshesPanel from '../components/MeshesPanel'
+import OIDCSettingsPanel from '../components/OIDCSettingsPanel'
 import ProbesPanel from '../components/ProbesPanel'
 import TargetsPanel from '../components/TargetsPanel'
 import ThresholdSettingsPanel from '../components/ThresholdSettings'
@@ -14,6 +15,7 @@ const TABS: Array<{ tab: SettingsTab; href: string; label: string }> = [
   { tab: 'targets', href: '#/settings/targets', label: 'Targets' },
   { tab: 'meshes', href: '#/settings/meshes', label: 'Meshes' },
   { tab: 'probes', href: '#/settings/probes', label: 'Probes' },
+  { tab: 'authentication', href: '#/settings/authentication', label: 'Authentication' },
 ]
 
 const TAB_INTRO: Record<SettingsTab, string> = {
@@ -21,6 +23,7 @@ const TAB_INTRO: Record<SettingsTab, string> = {
   targets: 'External hosts and URLs that site agents probe.',
   meshes: 'Site groups whose members probe each other in both directions.',
   probes: 'The measurement workload pushed to every affected agent within ~30 seconds.',
+  authentication: 'Optional single sign-on via an OpenID Connect provider. Local accounts always keep working.',
 }
 
 export default function Settings({
@@ -86,7 +89,9 @@ export default function Settings({
           </a>
         ))}
       </nav>
-      {tab === 'targets' ? (
+      {tab === 'authentication' ? (
+        <OIDCSettingsPanel isAdmin={isAdmin} onAuthError={onAuthError} />
+      ) : tab === 'targets' ? (
         <TargetsPanel isAdmin={isAdmin} onAuthError={onAuthError} />
       ) : tab === 'meshes' ? (
         <MeshesPanel isAdmin={isAdmin} onAuthError={onAuthError} />

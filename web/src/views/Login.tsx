@@ -1,14 +1,36 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, apiPost } from '../api'
 import LogoMark from '../components/LogoMark'
 import type { LoginResponse } from '../types'
 
-export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => void }) {
+// The OIDC start/callback endpoints report failures as short codes in the
+// URL hash (never IdP error strings); the detail is in the server log.
+const SSO_ERRORS: Record<string, string> = {
+  provider:
+    'Single sign-on failed: the identity provider could not be reached or returned an error. Details are in the server log.',
+  config: 'Single sign-on is not fully configured. Sign in with a local account and check Settings → Authentication.',
+  state: 'Single sign-on was interrupted — the sign-in attempt expired or did not match. Try again.',
+  claims:
+    'Single sign-on succeeded, but the identity token was missing required information. An administrator should check the claim mapping in Settings → Authentication.',
+  disabled: 'This account has been disabled. Contact an administrator.',
+  internal: 'Single sign-on failed because of a server error. Details are in the server log.',
+}
+
+export default function Login({ sso, onLogin }: { sso: boolean; onLogin: (res: LoginResponse) => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+
+  // Surface a callback failure carried in the hash, then clean the URL so
+  // a reload or bookmark does not replay the stale error.
+  useEffect(() => {
+    const m = /^#\/sso-error=([a-z-]+)$/.exec(location.hash)
+    if (!m) return
+    setError(SSO_ERRORS[m[1]] ?? 'Single sign-on failed. Details are in the server log.')
+    history.replaceState(null, '', location.pathname + location.search)
+  }, [])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -89,6 +111,22 @@ export default function Login({ onLogin }: { onLogin: (res: LoginResponse) => vo
         <button type="submit" disabled={busy || !username || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+        {sso && (
+          <>
+            <div className="login-divider" aria-hidden="true">
+              or
+            </div>
+            {/* Full navigation on purpose: the server 302s to the IdP, and a
+                fetch would be blocked by CSP and could not follow it. */}
+            <button
+              type="button"
+              className="sso-button"
+              onClick={() => window.location.assign('/api/v1/auth/oidc/start')}
+            >
+              Continue with single sign-on
+            </button>
+          </>
+        )}
       </form>
     </div>
   )
