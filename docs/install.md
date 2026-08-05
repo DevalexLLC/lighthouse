@@ -872,6 +872,20 @@ regardless of the OIDC configuration or the provider's availability, so a
 local admin is always your break-glass access. Configure at least one local
 admin before enabling SSO.
 
+If you are adding SSO to a control plane installed from an earlier
+release, upgrade it first using the standard procedure under
+[Upgrades](#upgrades) — new images, then `migrate`, then recreate the
+services. SSO ships as migration `0011`, which runs in a single
+transaction and makes exactly these schema changes: on `users` it relaxes
+`password_hash` to nullable (federated accounts have none), adds
+`auth_source` (`NOT NULL DEFAULT 'local'`), adds the nullable
+`oidc_subject` with a partial unique index, and adds a CHECK enforcing
+one credential shape per row; it also creates the new `oidc_settings`
+table with its single seeded, disabled row. No existing row is modified
+or deleted — every pre-upgrade user already satisfies the new constraints
+as a `local` account — and until an admin enables SSO nothing behaves
+differently.
+
 SSO is the one feature that makes the server perform outbound HTTP:
 discovery, token, and key fetches to the identity provider at login time,
 plus an immediate discovery call whenever an admin presses **Test
@@ -1097,27 +1111,83 @@ seconds.
 
 ## Upgrades
 
-For an online control plane, update `LIGHTHOUSE_VERSION` in `.env` and pull the
-new pinned images:
+### Control plane (live upgrade)
 
-```sh
-docker compose pull server proxy timescaledb
-```
+A control-plane upgrade is: back up, fetch the new images, apply database
+migrations using the new image, then recreate the services. The running
+services keep serving until the final step, so the dashboard outage is
+only the container recreation itself. Production servers never migrate
+automatically — the explicit `migrate` step below is mandatory, and the
+system enforces it: a new server started against an unmigrated database
+refuses to run with `preflight: database schema is behind … run
+'lighthouse-server migrate' first` instead of limping or touching data.
 
-For an offline control plane, load the new bundle image archive and then update
-`LIGHTHOUSE_VERSION` in `.env`. In either case, migrate and recreate the
-services:
+Work from the compose directory on the control-plane host:
 
-```sh
-docker compose run --rm server migrate \
-  --config /etc/lighthouse/server.yaml
-docker compose up -d
-docker compose ps
-```
+1. **Back up the database** (see [Backup scope](#backup-scope)). The
+   upgrade steps themselves modify no stored measurements or users, but a
+   migration can install *retention policies* that later delete history
+   past the documented horizons (raw results after 14 days, hourly
+   aggregates after 100, daily after 400 — installed by migration 0010).
+   If your upgrade crosses a release that adds retention, this backup
+   becomes the only copy of anything older, so take it seriously.
 
-Migrations are ordered and safe to rerun because only pending migrations are
-applied. Large upgrades may need a larger `migrate --timeout`; do not interrupt
-an aggregate backfill.
+2. **Update the pinned version** in `.env`:
+
+   ```sh
+   # .env
+   LIGHTHOUSE_VERSION=v<new-version>
+   ```
+
+3. **Fetch the new images.** Online:
+
+   ```sh
+   docker compose pull server proxy timescaledb
+   ```
+
+   Offline: load the new bundle's image archive instead
+   (`docker load -i images/lighthouse-images-<version>-<arch>.tar` from
+   the extracted bundle directory, as in
+   [section 2](#2-obtain-the-release-files-and-images)).
+
+   Pulling or loading only stages the images — everything is still
+   running the old version at this point.
+
+4. **Apply pending migrations with the new image.** The old server may
+   keep serving while this runs, and only not-yet-applied files run
+   (rerunning is a no-op). Most migrations apply and record atomically in
+   one transaction; the aggregate migrations (`*.notx.sql`, e.g.
+   0006–0009) must run outside one and are written idempotently instead —
+   if a run is interrupted around them, simply rerun `migrate` and it
+   converges:
+
+   ```sh
+   docker compose run --rm server migrate \
+     --config /etc/lighthouse/server.yaml
+   ```
+
+   This starts a one-off container from the *new* server image (that is
+   why step 3 comes first), applies whatever is pending, prints each
+   file as it lands, and exits. Large upgrades that backfill aggregates
+   may need a larger `migrate --timeout` (default 30 m); do not
+   interrupt a running backfill.
+
+5. **Recreate the services on the new version:**
+
+   ```sh
+   docker compose up -d
+   docker compose ps
+   ```
+
+   Do this promptly after step 4 so the serving binary matches the
+   migrated schema.
+
+6. **Verify:** `https://<dashboard-name>/healthz` answers, the dashboard
+   **Agents** page shows agents reconnecting (they retry on their own —
+   no agent-side action is needed for a control-plane upgrade), and
+   `docker compose logs --tail=50 server` is free of errors.
+
+### Agents
 
 RPM agents upgrade with the new package:
 
