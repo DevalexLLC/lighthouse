@@ -110,21 +110,44 @@ service. Container-based agent systems may pull it directly instead.
 
 ### Offline installation
 
+The release bundle contains only Lighthouse's own artifacts — third-party
+images are never redistributed. Two transfers are therefore required: the
+bundle itself, and the TimescaleDB image.
+
 On an internet-connected transfer system, download the release artifact named
-`lighthouse-<version>-<arch>-bundle.tar.gz`. Transfer it to the control-plane
-host, then extract and verify it:
+`lighthouse-<version>-<arch>-bundle.tar.gz` and extract it there first — the
+bundle's `TIMESCALEDB-IMAGE` file names the digest-qualified TimescaleDB
+reference this release was assembled against (the rolling tag alone would not
+identify exact bytes). Pull by that digest, re-apply the tag the Compose file
+uses, and save the image:
+
+```sh
+tar xzf lighthouse-<version>-<arch>-bundle.tar.gz
+docker pull --platform linux/<arch> \
+  "$(cat lighthouse-<version>-<arch>-bundle/TIMESCALEDB-IMAGE)"
+docker tag "$(cat lighthouse-<version>-<arch>-bundle/TIMESCALEDB-IMAGE)" \
+  timescale/timescaledb-ha:pg16-all
+docker save -o timescaledb-<arch>.tar timescale/timescaledb-ha:pg16-all
+```
+
+The tag step matters: a by-digest pull leaves the image untagged, and the
+Compose file references the tag — saving the tagged image means the load on
+the offline host restores a tag that points at exactly the pinned bytes. The
+digest changes rarely, so upgrades usually reuse the copy you already
+transferred (compare `TIMESCALEDB-IMAGE` across bundles).
+
+Transfer both files to the control-plane host, then extract and verify the
+bundle and load all images:
 
 ```sh
 tar xzf lighthouse-<version>-<arch>-bundle.tar.gz
 cd lighthouse-<version>-<arch>-bundle
 sha256sum -c SHA256SUMS
-```
 
-Load the server, proxy, agent, and TimescaleDB images from the one bundled
-archive:
-
-```sh
+# Lighthouse server, proxy, and agent images from the bundle:
 docker load -i images/lighthouse-images-<version>-<arch>.tar
+# The separately transferred database image:
+docker load -i ../timescaledb-<arch>.tar
 ```
 
 The bundle also contains the agent RPMs under `rpms/`, when published for the
@@ -1148,7 +1171,10 @@ Work from the compose directory on the control-plane host:
    Offline: load the new bundle's image archive instead
    (`docker load -i images/lighthouse-images-<version>-<arch>.tar` from
    the extracted bundle directory, as in
-   [section 2](#2-obtain-the-release-files-and-images)).
+   [section 2](#2-obtain-the-release-files-and-images)). The TimescaleDB
+   image is not in the bundle; you only need to transfer it again when
+   the new bundle's `TIMESCALEDB-IMAGE` file names a different digest
+   than the one already loaded on the host.
 
    Pulling or loading only stages the images — everything is still
    running the old version at this point.
