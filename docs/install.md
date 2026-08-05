@@ -258,8 +258,8 @@ convert it first. Each command prompts for the bundle's import password:
 (
   set -e
   umask 077   # the extracted key is unencrypted; do not create it world-readable
-  trap 'rm -f leaf.tmp chain.tmp key.tmp' EXIT
-  rm -f leaf.tmp chain.tmp key.tmp dashboard-cert.pem dashboard-key.pem
+  trap 'rm -f leaf.tmp chain.tmp key.tmp cert.new key.new' EXIT
+  rm -f leaf.tmp chain.tmp key.tmp cert.new key.new
 
   openssl pkcs12 -in dashboard.p12 -clcerts -nokeys -out leaf.tmp
   openssl pkcs12 -in dashboard.p12 -cacerts -nokeys -out chain.tmp
@@ -269,10 +269,13 @@ convert it first. Each command prompts for the bundle's import password:
   test "$(grep -c -- '-----BEGIN CERTIFICATE' leaf.tmp)" = 1
 
   pem="/BEGIN CERTIFICATE/,/END CERTIFICATE/p"
-  sed -n "$pem" leaf.tmp  >  dashboard-cert.pem
-  sed -n "$pem" chain.tmp >> dashboard-cert.pem
-  openssl pkey -in key.tmp -out dashboard-key.pem
-  chmod 600 dashboard-key.pem
+  sed -n "$pem" leaf.tmp  >  cert.new
+  sed -n "$pem" chain.tmp >> cert.new
+  openssl pkey -in key.tmp -out key.new
+  chmod 600 key.new
+
+  mv -T cert.new dashboard-cert.pem
+  mv -T key.new  dashboard-key.pem
 )
 ```
 
@@ -299,11 +302,24 @@ silent:
   holds the private key in plaintext, and the failures above are ones this
   block expects to hit — a bare cleanup line at the end would be skipped by
   `set -e` precisely when a conversion aborted midway, stranding the key.
-- The leading `rm -f` and trailing `chmod` protect the key. `umask` applies
-  only when a file is created — writing over an existing file truncates it
-  and keeps its old mode, so re-running where a stale `key.tmp` or
-  `dashboard-key.pem` sits at `0644` would publish an unencrypted private key
-  to every account on the host.
+- Everything is built under temporary names and moved into place only after
+  the last check passes, so a rerun that fails — mistyped password, missing
+  bundle, multi-alias keystore — leaves the certificate and key you already
+  had untouched. Writing straight to `dashboard-key.pem` would destroy
+  working key material on exactly the attempts this block is designed to
+  catch, and the `trap` clears the half-built files on the way out.
+- `umask` plus the `chmod` protect the key, and the rename is what makes them
+  stick. `umask` applies only when a file is created, so writing over an
+  existing `0644` `dashboard-key.pem` would truncate it and keep that mode —
+  publishing an unencrypted private key to every account on the host. A
+  rename replaces the destination outright, so the file that lands is the
+  `0600` one just created.
+- `mv -T` treats each destination as a file, never as a directory to move
+  into. This is not hypothetical here: Docker creates a directory at any
+  bind-mount source path that does not exist, so running the install command
+  below before converting leaves directories named `dashboard-cert.pem` and
+  `dashboard-key.pem`. Plain `mv` would drop the new files inside them and
+  exit 0, reporting success while the paths the server reads stay wrong.
 
 Extract the leaf (`-clcerts`) and the intermediates (`-cacerts`) as separate
 steps, in that order: the server treats the first certificate in the file as
