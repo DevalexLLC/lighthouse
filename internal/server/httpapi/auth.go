@@ -3,6 +3,7 @@ package httpapi
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/devalexllc/lighthouse/internal/server/auth"
+	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
 const (
@@ -52,8 +54,11 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 		internalError(w, "login lookup", err)
 		return
 	}
+	// Federated (OIDC) users have no password hash; they must fall into the
+	// same dummy-hash burn and byte-identical 401 as unknown users — an
+	// empty hash reaching VerifyPassword would be a malformed-PHC 500.
 	hash := auth.DummyHash
-	if user != nil && !user.Disabled {
+	if user != nil && !user.Disabled && user.PasswordHash != "" {
 		hash = user.PasswordHash
 	}
 	ok, err := auth.VerifyPassword(req.Password, hash)
@@ -61,11 +66,29 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 		internalError(w, "verify password", err)
 		return
 	}
-	if !ok || user == nil || user.Disabled {
+	if !ok || user == nil || user.Disabled || user.PasswordHash == "" {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
+	csrf, err := a.issueSession(w, r, user)
+	if err != nil {
+		internalError(w, "issue session", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, loginResponse{
+		User:      userJSON{Username: user.Username, Role: user.Role},
+		CSRFToken: csrf,
+	})
+}
+
+// issueSession mints a session for an already-authenticated user and sets
+// the session cookie; local login and the OIDC callback share it (the
+// callback redirects instead of writing JSON, so the response body is the
+// caller's). The Strict cookie is fine even on the callback's cross-site
+// redirect: browsers accept Set-Cookie there, and nothing before the SPA's
+// same-site /api fetches needs the cookie sent.
+func (a *api) issueSession(w http.ResponseWriter, r *http.Request, user *store.UserInfo) (csrf string, err error) {
 	// Opportunistic cleanup keeps the sessions table bounded without a
 	// background job; expired rows are invisible to lookups either way.
 	if n, err := a.db.DeleteExpiredSessions(r.Context()); err != nil {
@@ -76,18 +99,15 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	token, tokenHash, err := auth.NewToken()
 	if err != nil {
-		internalError(w, "mint session token", err)
-		return
+		return "", fmt.Errorf("mint session token: %w", err)
 	}
-	csrf, _, err := auth.NewToken()
+	csrf, _, err = auth.NewToken()
 	if err != nil {
-		internalError(w, "mint csrf token", err)
-		return
+		return "", fmt.Errorf("mint csrf token: %w", err)
 	}
 	expires := time.Now().Add(sessionTTL)
 	if err := a.db.CreateSession(r.Context(), user.ID, tokenHash, csrf, expires); err != nil {
-		internalError(w, "create session", err)
-		return
+		return "", fmt.Errorf("create session: %w", err)
 	}
 
 	http.SetCookie(w, &http.Cookie{
@@ -99,10 +119,7 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, http.StatusOK, loginResponse{
-		User:      userJSON{Username: user.Username, Role: user.Role},
-		CSRFToken: csrf,
-	})
+	return csrf, nil
 }
 
 // handleLogout deletes the session and clears the cookie. Idempotent.
