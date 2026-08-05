@@ -157,8 +157,13 @@ Full design + milestone plan: `docs/architecture.md`.
   `make reset` for volume ownership. `.dockerignore` exists and must
   NEVER exclude vendor//internal/pb//web/dist. Release: `make images` /
   `make rpm` / `make bundle` (deploy/release/build-bundle.sh, one
-  docker-load tar of all four images + compose + docs + RPMs +
-  SHA256SUMS, refuses overwrite); CI `.github/workflows/ci.yml` enforces
+  docker-load tar of the THREE Lighthouse images + compose + docs + RPMs
+  + SHA256SUMS, refuses overwrite; since 2026-08-05 the timescaledb image
+  is deliberately NOT bundled — releases redistribute no third-party
+  images; the compose tag is rolling, so bundle time resolves it to a
+  DIGEST-qualified ref (local RepoDigest preferred, registry fallback,
+  fail-loud) written to the bundle's TIMESCALEDB-IMAGE file, and offline
+  installs pull-by-digest + retag per install.md); CI `.github/workflows/ci.yml` enforces
   the offline build (GOPROXY=off GOTOOLCHAIN=local + git diff
   --exit-code; NO proto-drift gate — buf is not vendored/pinned) and
   builds all three images on PRs; `release.yml` on v* tags pushes

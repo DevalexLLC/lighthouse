@@ -64,20 +64,26 @@ A version tag (`vX.Y.Z`) triggers `.github/workflows/release.yml`:
 2. **RPMs** — `lighthouse-agent` for x86_64/aarch64. Go cross-compiles the
    static binary; `rpmbuild` (rockylinux:9 container) only packages it —
    nothing compiles or fetches inside rpmbuild.
-3. **Bundles** — `deploy/release/build-bundle.sh` saves all four images
-   (incl. timescaledb) into one `docker load` tarball per arch and packages
+3. **Bundles** — `deploy/release/build-bundle.sh` saves the three
+   Lighthouse images into one `docker load` tarball per arch and packages
    it with the production compose file, config examples, `docs/install.md`,
    the RPMs, and `SHA256SUMS`. Bundles + RPMs are attached to the GitHub
-   release.
+   release. The TimescaleDB image is deliberately not redistributed:
+   releases contain only Lighthouse's own artifacts, so offline operators
+   transfer it separately — the bundle's `TIMESCALEDB-IMAGE` file carries a
+   digest-qualified reference (the compose file's tag is rolling, so the
+   digest is resolved at bundle time, preferring the local image so offline
+   rebuilds never touch the registry) and `docs/install.md` documents the
+   pull-by-digest + retag transfer.
 
 ## Rebuilding everything without leaving the machine
 
 Prerequisites beyond this repository and Go:
 
 - Docker with the base images already present (`golang:1.26-alpine`,
-  `alpine:3.22`, `nginx:1.29-alpine`) **plus**
-  `timescale/timescaledb-ha:pg16-all` — the bundle packages it but never
-  builds it — and an Alpine package source for `libcap` (see above).
+  `alpine:3.22`, `nginx:1.29-alpine`) and an Alpine package source for
+  `libcap` (see above). `timescale/timescaledb-ha:pg16-all` is needed to
+  *run* a stack but is no longer part of any release artifact.
 - `rpmbuild` + `systemd-rpm-macros` installed on the host for `make rpm`
   (the Makefile's rockylinux container recipe is the *online* fallback —
   its `dnf install` reaches the network).
