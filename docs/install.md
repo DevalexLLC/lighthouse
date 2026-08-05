@@ -246,6 +246,141 @@ certificate lifetime is 90 days; both rotate automatically.
 
 ### 4.3 Install the dashboard certificate
 
+The server needs two PEM files: a certificate file whose first block is the
+leaf, followed by any intermediates, and an **unencrypted** private key. The
+key is protected by file mode, not by a passphrase — the server has no way to
+prompt for one, so an encrypted key stops startup.
+
+If your CA issued a PKCS#12 bundle (`.p12` or `.pfx`) rather than PEM files,
+convert it first. Each command prompts for the bundle's import password:
+
+```sh
+(
+  set -e
+  umask 077   # the extracted key is unencrypted; do not create it world-readable
+  trap 'rm -f leaf.tmp chain.tmp key.tmp' EXIT
+  rm -f leaf.tmp chain.tmp key.tmp dashboard-cert.pem dashboard-key.pem
+
+  openssl pkcs12 -in dashboard.p12 -clcerts -nokeys -out leaf.tmp
+  openssl pkcs12 -in dashboard.p12 -cacerts -nokeys -out chain.tmp
+  openssl pkcs12 -in dashboard.p12 -nocerts -nodes  -out key.tmp
+
+  test "$(grep -c -- '-----BEGIN' key.tmp)" = 1
+  test "$(grep -c -- '-----BEGIN CERTIFICATE' leaf.tmp)" = 1
+
+  pem="/BEGIN CERTIFICATE/,/END CERTIFICATE/p"
+  sed -n "$pem" leaf.tmp  >  dashboard-cert.pem
+  sed -n "$pem" chain.tmp >> dashboard-cert.pem
+  openssl pkey -in key.tmp -out dashboard-key.pem
+  chmod 600 dashboard-key.pem
+)
+```
+
+Every piece of that block earns its place, because each failure it prevents is
+silent:
+
+- The `( set -e … )` subshell stops at the first failing command instead of
+  carrying on with whatever the failure left behind. It has to be a subshell:
+  a bare `set -e` pasted into an interactive shell would close the session on
+  the first error. Run it on its own line, too — putting it inside `if` or on
+  either side of `&&` makes the shell treat its status as tested, which
+  disables `set -e` for everything inside it and quietly removes every
+  protection below.
+- Extraction writes to `-out` files rather than piping into `sed`, because a
+  pipeline reports the exit status of `sed`, which succeeds on empty input. A
+  wrong password would otherwise leave an empty `dashboard-cert.pem` behind a
+  reported success.
+- The two `test` lines reject multi-alias keystores. A PKCS#12 file may hold
+  several identities; `openssl pkey` then writes only the first key it finds
+  and exits 0, so the dashboard would silently serve whichever identity
+  happened to be stored first. If either check fails, re-export the bundle
+  for the one alias you want rather than editing the files by hand.
+- The `trap … EXIT` deletes `key.tmp` on every path out of the subshell. It
+  holds the private key in plaintext, and the failures above are ones this
+  block expects to hit — a bare cleanup line at the end would be skipped by
+  `set -e` precisely when a conversion aborted midway, stranding the key.
+- The leading `rm -f` and trailing `chmod` protect the key. `umask` applies
+  only when a file is created — writing over an existing file truncates it
+  and keeps its old mode, so re-running where a stale `key.tmp` or
+  `dashboard-key.pem` sits at `0644` would publish an unencrypted private key
+  to every account on the host.
+
+Extract the leaf (`-clcerts`) and the intermediates (`-cacerts`) as separate
+steps, in that order: the server treats the first certificate in the file as
+the leaf and requires it to match the key, and `-nokeys` on its own emits
+every certificate in the bundle in no guaranteed order. Dropping the
+intermediates leaves browsers that do not already hold them unable to build a
+chain.
+
+The `sed` filters strip the `Bag Attributes` preambles that PKCS#12
+extraction emits, and are safe in a pipeline because their input is a local
+file that already exists. Do not substitute `openssl x509` for them: it reads
+a single certificate, so a bundle carrying two or more intermediates would be
+silently truncated to the first one, producing a chain that fails to validate
+only for the clients that needed the discarded issuer. `openssl pkey`
+normalizes the key to PKCS#8, and the single-key check above is what makes
+that safe.
+
+If either `openssl pkcs12` command fails with an unsupported-algorithm or
+`digital envelope routines` error, the bundle uses legacy RC2/40-bit crypto
+that OpenSSL 3 disables by default; add `-legacy` to that command.
+
+Verify the result before installing it. The SAN must cover the hostname
+operators browse to — a name mismatch is a browser warning rather than a
+server error, so it is easy to ship unnoticed:
+
+```sh
+(
+  set -e
+  openssl x509 -in dashboard-cert.pem -noout -subject -dates -ext subjectAltName
+  openssl crl2pkcs7 -nocrl -certfile dashboard-cert.pem | openssl pkcs7 -print_certs -noout
+
+  openssl x509 -in dashboard-cert.pem -noout -pubkey > cert.pub
+  openssl pkey -in dashboard-key.pem -pubout        > key.pub
+  test -s cert.pub
+  test -s key.pub
+  cmp cert.pub key.pub
+  rm -f cert.pub key.pub
+  echo "key matches certificate"
+)
+```
+
+`key matches certificate` prints only when every check above it passed; treat
+its absence as failure regardless of what else scrolled past. Two details of
+that block are load-bearing:
+
+- The un-piped `openssl x509` runs first, so a malformed certificate file is
+  caught before the piped `crl2pkcs7` command, whose exit status would come
+  from `pkcs7` at the end of the pipe.
+- The `test -s` checks are separate commands rather than an
+  `A && B && cmp` chain. `set -e` deliberately ignores a failure in every
+  part of an `&&` list but the last, so chained guards would let two empty
+  files fall through to the success message — the digest-comparison trap in a
+  different disguise. As written, an empty file stops the subshell.
+
+The last command prints the certificates in the order the server will send
+them. A correct file reads as one ladder: the leaf first, then each
+certificate's `issuer` matching the next one's `subject`.
+
+Repair the file by hand if it does not. PKCS#12 stores CA certificates in no
+particular order and `-cacerts` emits them exactly as stored, so a bundle
+whose bags were written root-first — or that carries CA certificates
+belonging to some other chain — produces a broken ladder even though every
+command above succeeded. The server transmits the chain in file order and
+never reorders it, so clients that cannot repair the order themselves reject
+the connection. The file is only concatenated PEM blocks: move them into
+issuer order in a text editor, and delete any certificate that is not part of
+this leaf's ladder.
+
+Sending the root as well is merely wasteful — clients must already trust it —
+so removing it is an optimization, not a requirement. Do not treat matching
+`issuer` and `subject` as proof that a certificate is the root: during a CA
+key rollover an intermediate can be self-*issued* while still being signed by
+the previous key, and deleting it breaks the chain for every client that
+needed it. When the two are hard to tell apart, keep both. A redundant
+certificate costs a few hundred bytes per handshake; a missing one costs
+availability.
+
 The server container runs as UID 10001. Copy the operator-managed dashboard
 certificate and key into the Compose `tls` volume and set readable ownership.
 Replace the two `/absolute/path/...` values:
@@ -264,6 +399,10 @@ docker compose run --rm --no-deps \
 
 On an SELinux-enforcing host, add the appropriate bind-mount relabel option
 for the two source files if Docker cannot read them.
+
+The certificate and key now live in the `tls` volume. If you converted from a
+PKCS#12 bundle, the working directory still holds an unencrypted private key —
+move it to wherever you keep key material, or delete it along with the bundle.
 
 ## 5. Initialize and deploy the control plane
 
@@ -492,6 +631,7 @@ docker pull ghcr.io/devalexllc/lighthouse-agent:<version>
 
 ```sh
 docker run --rm \
+  --cap-add NET_RAW \
   --mount type=bind,src=/opt/lighthouse-agent/agent.yaml,dst=/etc/lighthouse/agent.yaml,readonly \
   --mount type=volume,src=lighthouse-agent-state,dst=/var/lib/lighthouse-agent \
   ghcr.io/devalexllc/lighthouse-agent:<version> \
@@ -500,6 +640,20 @@ docker run --rm \
   --fingerprint 'sha256:<hex>' \
   --probe-address '<probe-address>'
 ```
+
+`--cap-add NET_RAW` is required even though enrollment sends no ICMP. The
+image's binary carries the `cap_net_raw+ep` file capability, and the kernel
+refuses to `execve` such a binary when that capability is outside the
+container's bounding set — the container dies before the program starts, with:
+
+```text
+exec container process `/usr/local/bin/lighthouse-agent`: Operation not permitted
+```
+
+Docker includes `NET_RAW` in its default set, so this bites on runtimes that
+do not: Podman, rootless daemons, and daemons whose `default-capabilities`
+have been narrowed. Every invocation of this image needs the flag, including
+one-shot `enroll`, `selfcheck`, and `version` runs.
 
 On an SELinux-enforcing host, add the appropriate relabel option to the config
 bind mount if Docker cannot read it.
@@ -783,6 +937,35 @@ supplies `CAP_NET_RAW` for ICMP/traceroute.
 The image runs as UID 10001. Use a dedicated volume initialized by the image,
 and do not pre-populate its files as root. Confirm the same volume is mounted
 for enrollment and the long-running container.
+
+### Container agent exits with "Operation not permitted"
+
+```text
+exec container process `/usr/local/bin/lighthouse-agent`: Operation not permitted
+```
+
+The container is missing `NET_RAW`. The binary carries the `cap_net_raw+ep`
+file capability, and `execve` fails when that capability is outside the
+container's bounding set, so the failure happens before any Lighthouse code
+runs — subcommands that never touch a raw socket, such as `enroll`, fail
+identically. Add `--cap-add NET_RAW` (or `cap_add: [NET_RAW]` in Compose) to
+every invocation of the image. To confirm the runtime is the cause, read the
+bounding set your daemon hands out by default:
+
+```sh
+docker run --rm --entrypoint sh \
+  ghcr.io/devalexllc/lighthouse-agent:<version> -c 'grep CapBnd /proc/self/status'
+```
+
+This uses the agent image, which an air-gapped host already has, rather than
+pulling an unrelated one. Overriding the entrypoint is what makes it work
+without `--cap-add`: the shell carries no file capabilities, so it executes
+under any bounding set — only the agent binary is refused.
+
+`NET_RAW` is capability 13, so the printed mask must have bit `0x2000` set. A
+default Docker daemon prints `00000000a80425fb`; the same daemon with
+`NET_RAW` removed prints `00000000a80405fb`. If bit `0x2000` is clear, the
+runtime is dropping it and every `lighthouse-agent` container needs the flag.
 
 ## Certificate lifecycle
 
