@@ -16,6 +16,7 @@ import (
 
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/auth"
+	"github.com/devalexllc/lighthouse/internal/server/oidcauth"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -37,6 +38,9 @@ type fakeDB struct {
 	meshes      []store.MeshGroupInfo
 	probes      []store.ProbeConfigInfo
 
+	oidcSettings *store.OIDCSettings
+	oidcUsers    map[string]*store.UserInfo // key: oidc subject
+
 	pairSummary          *store.PairSummaryRow
 	pairSeries           []store.SeriesBucket
 	latencySource        string
@@ -47,7 +51,11 @@ type fakeDB struct {
 }
 
 func newFakeDB() *fakeDB {
-	return &fakeDB{users: map[string]*store.UserInfo{}, sessions: map[string]*store.SessionInfo{}}
+	return &fakeDB{
+		users:     map[string]*store.UserInfo{},
+		sessions:  map[string]*store.SessionInfo{},
+		oidcUsers: map[string]*store.UserInfo{},
+	}
 }
 
 func (f *fakeDB) addUser(username, password, role string, disabled bool) {
@@ -156,6 +164,51 @@ func (f *fakeDB) CurrentPaths(_ context.Context, _, _ []uuid.UUID) ([]store.Curr
 	return nil, nil
 }
 
+func (f *fakeDB) GetOIDCSettings(_ context.Context) (*store.OIDCSettings, error) {
+	if f.oidcSettings == nil {
+		// Mirrors the migration-seeded defaults (disabled).
+		return &store.OIDCSettings{
+			Scopes:        []string{"openid", "profile", "email"},
+			UsernameClaim: "preferred_username",
+			RoleClaim:     "groups",
+			AdminValues:   []string{},
+		}, nil
+	}
+	return f.oidcSettings, nil
+}
+
+func (f *fakeDB) UpdateOIDCSettings(_ context.Context, o store.OIDCSettings, keepSecret bool) (*store.OIDCSettings, error) {
+	if keepSecret {
+		o.ClientSecret = ""
+		if f.oidcSettings != nil {
+			o.ClientSecret = f.oidcSettings.ClientSecret
+		}
+	}
+	o.UpdatedAt = time.Now()
+	f.oidcSettings = &o
+	return f.oidcSettings, nil
+}
+
+// addOIDCUser pre-provisions a federated user (empty password hash).
+func (f *fakeDB) addOIDCUser(subject, username, role string, disabled bool) *store.UserInfo {
+	u := &store.UserInfo{
+		ID: uuid.New(), Username: username, Role: role, Disabled: disabled, AuthSource: "oidc",
+	}
+	f.oidcUsers[subject] = u
+	f.users[username] = u
+	return u
+}
+
+func (f *fakeDB) UpsertOIDCUser(_ context.Context, subject, username, role string) (*store.UserInfo, error) {
+	if u := f.oidcUsers[subject]; u != nil {
+		// Username/role track the IdP; disabled survives (revocation lever).
+		u.Username, u.Role = username, role
+		return u, nil
+	}
+	u := f.addOIDCUser(subject, username, role, false)
+	return u, nil
+}
+
 var testDist = fstest.MapFS{
 	"index.html":       {Data: []byte("<html>spa</html>")},
 	"assets/app.js":    {Data: []byte("console.log('app')")},
@@ -164,7 +217,14 @@ var testDist = fstest.MapFS{
 
 func newTestAPI(t *testing.T, f *fakeDB) http.Handler {
 	t.Helper()
-	return New(f, testDist)
+	// The default provider manager matches the default settings row: OIDC
+	// off. Tests exercising the flow use newTestAPIWithProviders.
+	return newHandler(f, testDist, &fakeProviders{providerErr: oidcauth.ErrDisabled})
+}
+
+func newTestAPIWithProviders(t *testing.T, f *fakeDB, p *fakeProviders) http.Handler {
+	t.Helper()
+	return newHandler(f, testDist, p)
 }
 
 func doLogin(t *testing.T, h http.Handler, username, password string) *httptest.ResponseRecorder {
