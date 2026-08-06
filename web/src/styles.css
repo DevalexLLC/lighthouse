@@ -2531,6 +2531,25 @@ td.fleet-uptime {
   color: var(--ink-3);
 }
 
+/* Strip slot hover card: the map info card's look (composes .map-tip), but
+   fixed-position — strips sit inside scroll containers that would clip an
+   absolute child — and inert: it is a pure readout with no links, so the
+   pointer must never be able to land on it. */
+.strip-tip {
+  position: fixed;
+  z-index: 30;
+  min-width: 10.5rem;
+  max-width: 16rem;
+  transform: translate(-50%, calc(-100% - 10px));
+  pointer-events: none;
+}
+
+/* No headroom above (strip scrolled near the viewport top): the card
+   flips underneath the strip instead of rendering off-screen. */
+.strip-tip-below {
+  transform: translate(-50%, 10px);
+}
+
 .status-marker {
   display: block;
   width: 8px;

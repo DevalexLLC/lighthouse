@@ -1,9 +1,20 @@
+import { useState } from 'react'
 import type { AgentHealthBucket } from '../types'
 
 // 48 × 30-min slots = the 24 h the agent-health endpoints serve.
 export const SLOTS = 48
 
 type SlotClass = 'ok' | 'degraded' | 'down' | 'nodata'
+
+// The hover card reuses the map info card's pill classes so slot states
+// wear exactly the site severities' colors; nodata borrows the stale tint.
+const SLOT_SEV: Record<SlotClass, string> = { ok: 'ok', degraded: 'warn', down: 'down', nodata: 'stale' }
+const SLOT_LABEL: Record<SlotClass, string> = {
+  ok: 'Healthy',
+  degraded: 'Degraded',
+  down: 'Down',
+  nodata: 'No data',
+}
 
 function slotTime(epochS: number, withZone: boolean): string {
   return new Date(epochS * 1000).toLocaleTimeString(
@@ -12,23 +23,20 @@ function slotTime(epochS: number, withZone: boolean): string {
   )
 }
 
-// slotTitle is the per-slot hover detail: the bucket's local time window
-// plus its counts, so a failed block answers "when, and how badly" without
-// leaving the strip. Wall-clock times are unambiguous within a 24 h window
-// except across a DST transition (fall-back repeats an hour, so two buckets
-// would share a label and a range can read reversed); withZone appends the
-// short zone name on exactly those days.
-function slotTitle(t: number, bucketS: number, withZone: boolean, b: AgentHealthBucket | undefined): string {
-  const range = `${slotTime(t, withZone)}–${slotTime(t + bucketS, withZone)}`
-  if (!b || b.samples === 0) return `${range} · no samples`
-  return `${range} · ${b.ok} of ${b.samples} ok`
+interface Slot {
+  cls: SlotClass
+  range: string
+  b: AgentHealthBucket | undefined
 }
 
 // One series' 24 h as a segmented bar strip (hand-rolled SVG — uPlot is for
 // real charts). Slots align to bucket boundaries ending at the current
-// bucket; a slot with no samples renders muted, never as success. Each slot
-// carries a native tooltip over the full slot width (the visible segment is
-// narrower than its slot, and thin hit targets make hover misses cheap).
+// bucket; a slot with no samples renders muted, never as success. Hovering
+// shows a map-info-card-style readout for the slot under the pointer: its
+// local time window, state, and counts. The card is fixed-position because
+// strips sit inside scroll containers that would clip an absolute child,
+// and pointer-inert because it is a pure readout — unlike the map's card it
+// carries no links, so it never needs the delayed-clear persistence dance.
 export default function HealthStrip({
   buckets,
   bucketS,
@@ -40,13 +48,15 @@ export default function HealthStrip({
   endS: number
   label: string
 }) {
+  const [hover, setHover] = useState<{ i: number; x: number; y: number; below: boolean } | null>(null)
   const byStart = new Map(buckets.map((b) => [b.t, b]))
   // A UTC-offset change inside the window means a DST transition: label
   // every slot with the zone that day so repeated wall-clock hours stay
-  // distinguishable.
+  // distinguishable (fall-back repeats an hour, so two buckets would
+  // otherwise share a label and a range could read reversed).
   const withZone =
     new Date((endS - SLOTS * bucketS) * 1000).getTimezoneOffset() !== new Date(endS * 1000).getTimezoneOffset()
-  const slots: { cls: SlotClass; title: string }[] = []
+  const slots: Slot[] = []
   for (let i = 0; i < SLOTS; i++) {
     const t = endS - (SLOTS - i) * bucketS
     const b = byStart.get(t)
@@ -55,25 +65,64 @@ export default function HealthStrip({
     else if (b.ok === 0) cls = 'down'
     else if (b.ok < b.samples) cls = 'degraded'
     else cls = 'ok'
-    slots.push({ cls, title: slotTitle(t, bucketS, withZone, b) })
+    slots.push({ cls, range: `${slotTime(t, withZone)}–${slotTime(t + bucketS, withZone)}`, b })
   }
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const i = Math.min(SLOTS - 1, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * SLOTS)))
+    // Clamp so the centered card stays on screen at the viewport edges;
+    // flip it below the strip when a scrolled row leaves no headroom above.
+    const x = Math.min(Math.max(r.left + ((i + 0.5) / SLOTS) * r.width, 140), window.innerWidth - 140)
+    const below = r.top < 150
+    const y = below ? r.bottom : r.top
+    setHover((prev) =>
+      prev && prev.i === i && prev.x === x && prev.y === y && prev.below === below ? prev : { i, x, y, below },
+    )
+  }
+
+  const slot = hover ? slots[hover.i] : null
+  const pct = slot?.b && slot.b.samples > 0 ? (100 * slot.b.ok) / slot.b.samples : null
   return (
-    <svg
-      className="fleet-strip"
-      viewBox={`0 0 ${SLOTS * 2} 12`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={label}
-    >
-      {slots.map((s, i) => (
-        <g key={i}>
-          <rect className={'fleet-strip-seg strip-' + s.cls} x={i * 2} y={1} width={1.4} height={10} rx={0.7} />
-          <rect x={i * 2} y={0} width={2} height={12} fill="transparent">
-            <title>{s.title}</title>
-          </rect>
-        </g>
-      ))}
-    </svg>
+    <>
+      {/* Hover-only readout: the svg keeps its aggregate aria-label; the
+          card mirrors what a sighted user gains, as on the world map. */}
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <svg
+        className="fleet-strip"
+        viewBox={`0 0 ${SLOTS * 2} 12`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={label}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        {slots.map((s, i) => (
+          <rect key={i} className={'fleet-strip-seg strip-' + s.cls} x={i * 2} y={1} width={1.4} height={10} rx={0.7} />
+        ))}
+      </svg>
+      {hover && slot && (
+        <div
+          className={'map-tip strip-tip' + (hover.below ? ' strip-tip-below' : '')}
+          role="status"
+          style={{ left: hover.x, top: hover.y }}
+        >
+          <div className="map-tip-head">
+            <b>{slot.range}</b>
+            <span className={`map-tip-pill sev-${SLOT_SEV[slot.cls]}`}>{SLOT_LABEL[slot.cls]}</span>
+          </div>
+          <div className="map-tip-value">
+            {pct == null ? '—' : `${pct.toFixed(1)}%`}
+            <small> probe success</small>
+          </div>
+          <div className="map-tip-caption">
+            {slot.b && slot.b.samples > 0
+              ? `${slot.b.ok} of ${slot.b.samples} ${slot.b.samples === 1 ? 'probe' : 'probes'} ok`
+              : 'no samples in this half hour'}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
