@@ -240,9 +240,14 @@ function Row({
         <td className="mono" data-label="Config" title={a.config_hash || undefined}>
           {a.config_hash ? a.config_hash.slice(0, 8) : '—'}
         </td>
-        <td data-label="Detail" className="config-actions">
-          <button type="button" className="secondary-button" aria-expanded={expanded} onClick={onToggle}>
-            {expanded ? 'Close' : 'Detail'}
+        <td data-label="Detail">
+          <button
+            type="button"
+            className="incident-toggle agent-detail-toggle"
+            aria-expanded={expanded}
+            onClick={onToggle}
+          >
+            {expanded ? 'Hide details' : 'View details'} <span aria-hidden="true">{expanded ? '−' : '+'}</span>
           </button>
         </td>
       </tr>

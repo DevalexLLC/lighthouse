@@ -2911,7 +2911,10 @@ td.fleet-uptime {
   .incident-meta {
     grid-column: 2;
   }
-  .incident-toggle {
+  /* Scoped to the incident header: .incident-toggle is also worn by the
+     Agents rows' detail button, which must not inherit this grid slot
+     inside the stacked mobile table cells. */
+  .incident-summary .incident-toggle {
     grid-column: 3;
     grid-row: 1 / span 3;
   }
@@ -3088,6 +3091,21 @@ tr.probe-disabled > td {
 
 tr.agent-row {
   cursor: pointer;
+}
+
+/* The Agents rows' expand affordance wears the Incidents rows' toggle
+   (.incident-toggle text treatment); the reset is needed because here it
+   is a standalone button, not a span inside one. */
+button.agent-detail-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.agent-detail-toggle:hover {
+  text-decoration: underline;
 }
 
 .agent-detail-row > td {
