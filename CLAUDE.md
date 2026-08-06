@@ -408,7 +408,10 @@ Full design + milestone plan: `docs/architecture.md`.
   so no exclusion param. SPA: strip SVG + coverage math + uptime rendering
   extracted verbatim from FleetAgentsCard into shared
   `components/HealthStrip.tsx` (`HealthStrip`/`stripStats`/`UptimeValue`);
-  detail fetches lazily on expand with its own 30s poll. Verified in
+  detail fetches lazily on expand with its own 30s poll. Every strip slot
+  (fleet card + probe detail) carries a native SVG `<title>` tooltip —
+  local time window + "N of M ok" / "no samples" — via a transparent
+  full-slot hit rect (the visible segment is narrower than its slot). Verified in
   compose: labels/silent-series/400s/401, ICMP-block gate → failing +
   real error text on exactly the lon→syd icmp row, closed after unblock.
 - Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries

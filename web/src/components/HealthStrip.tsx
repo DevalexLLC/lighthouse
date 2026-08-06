@@ -5,9 +5,30 @@ export const SLOTS = 48
 
 type SlotClass = 'ok' | 'degraded' | 'down' | 'nodata'
 
+function slotTime(epochS: number, withZone: boolean): string {
+  return new Date(epochS * 1000).toLocaleTimeString(
+    [],
+    withZone ? { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' } : { hour: '2-digit', minute: '2-digit' },
+  )
+}
+
+// slotTitle is the per-slot hover detail: the bucket's local time window
+// plus its counts, so a failed block answers "when, and how badly" without
+// leaving the strip. Wall-clock times are unambiguous within a 24 h window
+// except across a DST transition (fall-back repeats an hour, so two buckets
+// would share a label and a range can read reversed); withZone appends the
+// short zone name on exactly those days.
+function slotTitle(t: number, bucketS: number, withZone: boolean, b: AgentHealthBucket | undefined): string {
+  const range = `${slotTime(t, withZone)}–${slotTime(t + bucketS, withZone)}`
+  if (!b || b.samples === 0) return `${range} · no samples`
+  return `${range} · ${b.ok} of ${b.samples} ok`
+}
+
 // One series' 24 h as a segmented bar strip (hand-rolled SVG — uPlot is for
 // real charts). Slots align to bucket boundaries ending at the current
-// bucket; a slot with no samples renders muted, never as success.
+// bucket; a slot with no samples renders muted, never as success. Each slot
+// carries a native tooltip over the full slot width (the visible segment is
+// narrower than its slot, and thin hit targets make hover misses cheap).
 export default function HealthStrip({
   buckets,
   bucketS,
@@ -20,14 +41,21 @@ export default function HealthStrip({
   label: string
 }) {
   const byStart = new Map(buckets.map((b) => [b.t, b]))
-  const slots: SlotClass[] = []
+  // A UTC-offset change inside the window means a DST transition: label
+  // every slot with the zone that day so repeated wall-clock hours stay
+  // distinguishable.
+  const withZone =
+    new Date((endS - SLOTS * bucketS) * 1000).getTimezoneOffset() !== new Date(endS * 1000).getTimezoneOffset()
+  const slots: { cls: SlotClass; title: string }[] = []
   for (let i = 0; i < SLOTS; i++) {
     const t = endS - (SLOTS - i) * bucketS
     const b = byStart.get(t)
-    if (!b || b.samples === 0) slots.push('nodata')
-    else if (b.ok === 0) slots.push('down')
-    else if (b.ok < b.samples) slots.push('degraded')
-    else slots.push('ok')
+    let cls: SlotClass
+    if (!b || b.samples === 0) cls = 'nodata'
+    else if (b.ok === 0) cls = 'down'
+    else if (b.ok < b.samples) cls = 'degraded'
+    else cls = 'ok'
+    slots.push({ cls, title: slotTitle(t, bucketS, withZone, b) })
   }
   return (
     <svg
@@ -37,8 +65,13 @@ export default function HealthStrip({
       role="img"
       aria-label={label}
     >
-      {slots.map((cls, i) => (
-        <rect key={i} className={'fleet-strip-seg strip-' + cls} x={i * 2} y={1} width={1.4} height={10} rx={0.7} />
+      {slots.map((s, i) => (
+        <g key={i}>
+          <rect className={'fleet-strip-seg strip-' + s.cls} x={i * 2} y={1} width={1.4} height={10} rx={0.7} />
+          <rect x={i * 2} y={0} width={2} height={12} fill="transparent">
+            <title>{s.title}</title>
+          </rect>
+        </g>
       ))}
     </svg>
   )
