@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
+import HealthStrip, { stripStats, UptimeValue } from '../components/HealthStrip'
 import { fmtAgo, fmtTime } from '../format'
-import type { AgentInfo, AgentsResponse } from '../types'
+import type { AgentInfo, AgentProbeHealth, AgentProbeHealthResponse, AgentsResponse } from '../types'
 
 const POLL_MS = 30_000
 // Agents renew their cert at 2/3 lifetime (10 days left on the 30-day
@@ -76,57 +77,183 @@ function CertCell({ a }: { a: AgentInfo }) {
   )
 }
 
-function Row({ a }: { a: AgentInfo }) {
+// probeSortKey orders the expanded detail: failing series first, then by
+// the same type + destination text the label shows.
+function probeSortKey(p: AgentProbeHealth): string {
+  return `${p.failing ? 0 : 1} ${p.type} ${p.dst_site ?? p.target ?? ''}`
+}
+
+function ProbeLabel({ p }: { p: AgentProbeHealth }) {
+  return (
+    <div className="probe-strip-label">
+      <span className="mono">{p.type}</span>
+      {p.target_kind === 'external' ? (
+        <>
+          <span>{p.target ?? 'deleted target'}</span>
+          <span className="chip">external</span>
+        </>
+      ) : p.target_kind === 'agent' ? (
+        <span>→ {p.dst_site ?? 'deleted site'}</span>
+      ) : (
+        <span className="hint">deleted target</span>
+      )}
+      {p.type === 'traceroute' && (
+        <span className="hint" title="Traceroute status is destination reached; excluded from agent uptime ratios">
+          path watch
+        </span>
+      )}
+    </div>
+  )
+}
+
+// The expanded per-probe detail: one 24 h strip per probe series, failing
+// first, so the row's "N of M failing" is attributable to specific probes —
+// an external target down for maintenance reads differently from a broken
+// site link.
+function ProbeDetail({ detail, error }: { detail: AgentProbeHealthResponse | null; error: string }) {
+  if (!detail && error)
+    return (
+      <div className="inline-alert" role="status">
+        Probe detail unavailable: {error}
+      </div>
+    )
+  if (!detail)
+    return (
+      <div className="probe-strip-loading" role="status">
+        <span className="state-spinner" /> Loading probe detail…
+      </div>
+    )
+  if (detail.probes.length === 0)
+    return (
+      <div className="empty-state">
+        <strong>No probe series yet</strong>
+        <span>This agent has never reported a result.</span>
+      </div>
+    )
+  const bucketS = detail.bucket_s || 1800
+  const nowS = Date.now() / 1000
+  // Sorting a freshly-spread copy, same as Outages' group sort (toSorted
+  // needs a newer TS lib target than the build uses).
+  // oxlint-disable-next-line unicorn/no-array-sort
+  const probes = [...detail.probes].sort((x, y) => probeSortKey(x).localeCompare(probeSortKey(y)))
+  return (
+    <div className="probe-strip-list">
+      {error && (
+        <div className="inline-alert" role="status">
+          Refresh failed. Showing the last successful snapshot.
+        </div>
+      )}
+      {probes.map((p) => {
+        const s = stripStats(p.buckets, bucketS, nowS)
+        return (
+          <div key={p.probe_id} className="probe-strip-row">
+            <ProbeLabel p={p} />
+            <HealthStrip buckets={s.inWindow} bucketS={bucketS} endS={s.endS} label={s.stripLabel} />
+            <div className="probe-strip-uptime">
+              <UptimeValue uptime={s.uptime} partial={s.partial} stripLabel={s.stripLabel} />
+            </div>
+            {p.failing && (
+              <div className="probe-strip-error">
+                <span className="status-text-down">failing since {fmtAgo(p.open_since)}</span>
+                {p.error && (
+                  <code className="probe-strip-error-text" title={p.error}>
+                    {p.error}
+                  </code>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function Row({
+  a,
+  expanded,
+  onToggle,
+  detail,
+  detailError,
+}: {
+  a: AgentInfo
+  expanded: boolean
+  onToggle: () => void
+  detail: AgentProbeHealthResponse | null
+  detailError: string
+}) {
   const h = health(a)
   return (
-    <tr>
-      <td data-label="Status">
-        <span className={'status-text-' + h.status}>
-          <span className={'dot swatch status-' + h.status} /> {h.label}
-        </span>
-      </td>
-      <td className="mono" data-label="Agent" title={`enrolled ${fmtTime(a.enrolled_at)} · ${a.id}`}>
-        {a.site} · {a.hostname}
-      </td>
-      <td className="mono" data-label="Address">
-        {a.probe_address || '—'}
-      </td>
-      <td className="mono" data-label="Version">
-        {a.version || '—'}
-      </td>
-      <td data-label="Last seen" title={fmtTime(a.last_seen_at)}>
-        {fmtAgo(a.last_seen_at)}
-      </td>
-      <td data-label="Probes">
-        {a.probes_total === 0 ? (
-          <span className="hint">none yet</span>
-        ) : a.probes_failing > 0 ? (
-          <span className="status-text-degraded">
-            {a.probes_failing} of {a.probes_total} failing
+    <>
+      <tr
+        className="agent-row"
+        onClick={(e) => {
+          // The whole row is a convenience click target, but never steal
+          // clicks meant for real controls inside it.
+          if ((e.target as Element).closest('button, a')) return
+          onToggle()
+        }}
+      >
+        <td data-label="Status">
+          <span className={'status-text-' + h.status}>
+            <span className={'dot swatch status-' + h.status} /> {h.label}
           </span>
-        ) : (
-          <span className="muted">{a.probes_total} ok</span>
-        )}
-      </td>
-      <td data-label="Spool drops">
-        {a.dropped_results === 0 ? (
-          <span className="muted">none</span>
-        ) : (
-          <span
-            className="status-text-degraded"
-            title={a.last_dropped_at ? `last ${fmtTime(a.last_dropped_at)}` : undefined}
-          >
-            {a.dropped_results.toLocaleString()} lost · {fmtAgo(a.last_dropped_at)}
-          </span>
-        )}
-      </td>
-      <td data-label="Certificate">
-        <CertCell a={a} />
-      </td>
-      <td className="mono" data-label="Config" title={a.config_hash || undefined}>
-        {a.config_hash ? a.config_hash.slice(0, 8) : '—'}
-      </td>
-    </tr>
+        </td>
+        <td className="mono" data-label="Agent" title={`enrolled ${fmtTime(a.enrolled_at)} · ${a.id}`}>
+          {a.site} · {a.hostname}
+        </td>
+        <td className="mono" data-label="Address">
+          {a.probe_address || '—'}
+        </td>
+        <td className="mono" data-label="Version">
+          {a.version || '—'}
+        </td>
+        <td data-label="Last seen" title={fmtTime(a.last_seen_at)}>
+          {fmtAgo(a.last_seen_at)}
+        </td>
+        <td data-label="Probes">
+          {a.probes_total === 0 ? (
+            <span className="hint">none yet</span>
+          ) : a.probes_failing > 0 ? (
+            <span className="status-text-degraded">
+              {a.probes_failing} of {a.probes_total} failing
+            </span>
+          ) : (
+            <span className="muted">{a.probes_total} ok</span>
+          )}
+        </td>
+        <td data-label="Spool drops">
+          {a.dropped_results === 0 ? (
+            <span className="muted">none</span>
+          ) : (
+            <span
+              className="status-text-degraded"
+              title={a.last_dropped_at ? `last ${fmtTime(a.last_dropped_at)}` : undefined}
+            >
+              {a.dropped_results.toLocaleString()} lost · {fmtAgo(a.last_dropped_at)}
+            </span>
+          )}
+        </td>
+        <td data-label="Certificate">
+          <CertCell a={a} />
+        </td>
+        <td className="mono" data-label="Config" title={a.config_hash || undefined}>
+          {a.config_hash ? a.config_hash.slice(0, 8) : '—'}
+        </td>
+        <td data-label="Detail" className="config-actions">
+          <button type="button" className="secondary-button" aria-expanded={expanded} onClick={onToggle}>
+            {expanded ? 'Close' : 'Detail'}
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="agent-detail-row">
+          <td colSpan={10} data-label="24 h probes">
+            <ProbeDetail detail={detail} error={detailError} />
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
@@ -135,6 +262,11 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
   const [error, setError] = useState('')
   const [filter, setFilter] = useState<FleetFilter>('all')
   const [query, setQuery] = useState('')
+  // One agent's row may be expanded to its per-probe detail, fetched
+  // lazily on expand and refreshed on the same cadence as the table.
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [detail, setDetail] = useState<AgentProbeHealthResponse | null>(null)
+  const [detailError, setDetailError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -157,6 +289,35 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
       clearInterval(id)
     }
   }, [onAuthError])
+
+  useEffect(() => {
+    if (!expanded) {
+      setDetail(null)
+      setDetailError('')
+      return
+    }
+    let cancelled = false
+    setDetail(null)
+    setDetailError('')
+    const load = () =>
+      apiGet<AgentProbeHealthResponse>(`/api/v1/agents/${expanded}/health?window=24h`)
+        .then((res) => {
+          if (!cancelled) {
+            setDetail(res)
+            setDetailError('')
+          }
+        })
+        .catch((err) => {
+          onAuthError(err)
+          if (!cancelled) setDetailError(err instanceof Error ? err.message : String(err))
+        })
+    load()
+    const id = setInterval(load, POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [expanded, onAuthError])
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -295,11 +456,21 @@ export default function Agents({ onAuthError }: { onAuthError: (err: unknown) =>
                   <th className="eyebrow">spool drops</th>
                   <th className="eyebrow">certificate</th>
                   <th className="eyebrow">config</th>
+                  <th className="actions-col">
+                    <span className="sr-only">Detail</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {visible.map((a) => (
-                  <Row key={a.id} a={a} />
+                  <Row
+                    key={a.id}
+                    a={a}
+                    expanded={expanded === a.id}
+                    onToggle={() => setExpanded((prev) => (prev === a.id ? null : a.id))}
+                    detail={detail}
+                    detailError={detailError}
+                  />
                 ))}
               </tbody>
             </table>

@@ -30,6 +30,9 @@ type fakeDB struct {
 	agentHealth []store.AgentHealthBucket
 	// probe type the last AgentHealthSeries call was told to exclude
 	lastHealthExclude int16
+	probeHealth       []store.AgentProbeHealthRow
+	// agent id the last AgentProbeHealth call was made for
+	lastProbeHealthAgent uuid.UUID
 	sites             []store.SiteInfo
 	endpoints         map[string]*store.SiteEndpoints
 	settings          *store.ThresholdSettings
@@ -110,6 +113,10 @@ func (f *fakeDB) ListAgents(_ context.Context) ([]store.AgentListInfo, error) {
 func (f *fakeDB) AgentHealthSeries(_ context.Context, _, _ time.Duration, excludeProbeType int16) ([]store.AgentHealthBucket, error) {
 	f.lastHealthExclude = excludeProbeType
 	return f.agentHealth, nil
+}
+func (f *fakeDB) AgentProbeHealth(_ context.Context, agentID uuid.UUID, _, _ time.Duration) ([]store.AgentProbeHealthRow, error) {
+	f.lastProbeHealthAgent = agentID
+	return f.probeHealth, nil
 }
 func (f *fakeDB) MatrixLatest(_ context.Context, _ time.Duration) ([]store.MatrixRow, error) {
 	return nil, nil
@@ -328,6 +335,7 @@ func TestSessionRequired(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/auth/me", "/api/v1/sites", "/api/v1/agents", "/api/v1/matrix",
 		"/api/v1/agents/health", "/api/v1/pairs/a/b", "/api/v1/pairs/a/b/series",
+		"/api/v1/agents/00000000-0000-0000-0000-000000000000/health",
 	} {
 		req := httptest.NewRequest("GET", path, nil)
 		w := httptest.NewRecorder()
@@ -415,6 +423,145 @@ func TestAgentHealth(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("window=7d = %d, want 400", w.Code)
+	}
+}
+
+func TestAgentProbeHealth(t *testing.T) {
+	f := newFakeDB()
+	agent := uuid.New()
+	probeA := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	probeB := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	probeC := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	t0 := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	opened := t0.Add(-2 * time.Hour)
+	str := func(s string) *string { return &s }
+	i64 := func(v int64) *int64 { return &v }
+	tp := func(v time.Time) *time.Time { return &v }
+	f.probeHealth = []store.AgentProbeHealthRow{
+		// Agent-kind icmp series with an open outage: two bucket rows,
+		// label columns repeated per row as the store query produces.
+		{ProbeID: probeA, ProbeType: int16(pb.ProbeType_PROBE_TYPE_ICMP),
+			TargetKind: str("agent"), TargetName: str("agent:deadbeef"), DstSite: str("lon"),
+			LastStatus: int16(pb.ProbeStatus_PROBE_STATUS_TIMEOUT), LastTime: t0,
+			OpenedAt: tp(opened), OpenError: str("i/o timeout"),
+			Bucket: tp(t0), Samples: i64(30), OK: i64(0)},
+		{ProbeID: probeA, ProbeType: int16(pb.ProbeType_PROBE_TYPE_ICMP),
+			TargetKind: str("agent"), TargetName: str("agent:deadbeef"), DstSite: str("lon"),
+			LastStatus: int16(pb.ProbeStatus_PROBE_STATUS_TIMEOUT), LastTime: t0,
+			OpenedAt: tp(opened), OpenError: str("i/o timeout"),
+			Bucket: tp(t0.Add(30 * time.Minute)), Samples: i64(30), OK: i64(12)},
+		// External http series, healthy.
+		{ProbeID: probeB, ProbeType: int16(pb.ProbeType_PROBE_TYPE_HTTP),
+			TargetKind: str("external"), TargetName: str("corp-vpn"),
+			LastStatus: int16(pb.ProbeStatus_PROBE_STATUS_OK), LastTime: t0,
+			Bucket: tp(t0), Samples: i64(60), OK: i64(60)},
+		// Silent traceroute series: the LEFT JOIN's single nil-bucket row.
+		{ProbeID: probeC, ProbeType: int16(pb.ProbeType_PROBE_TYPE_TRACEROUTE),
+			TargetKind: str("agent"), TargetName: str("agent:cafe"), DstSite: str("syd"),
+			LastStatus: int16(pb.ProbeStatus_PROBE_STATUS_OK), LastTime: t0.Add(-48 * time.Hour)},
+	}
+	h := newTestAPI(t, f)
+	cookie, _ := loginAndCookie(t, h, f)
+
+	req := httptest.NewRequest("GET", "/api/v1/agents/"+agent.String()+"/health?window=24h", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("agent probe health = %d %s", w.Code, w.Body)
+	}
+	if f.lastProbeHealthAgent != agent {
+		t.Errorf("store queried for agent %s, want %s (path id)", f.lastProbeHealthAgent, agent)
+	}
+	var res struct {
+		Window  string `json:"window"`
+		BucketS int    `json:"bucket_s"`
+		Probes  []struct {
+			ProbeID    string  `json:"probe_id"`
+			Type       string  `json:"type"`
+			TargetKind string  `json:"target_kind"`
+			Target     *string `json:"target"`
+			DstSite    *string `json:"dst_site"`
+			LastStatus string  `json:"last_status"`
+			Failing    bool    `json:"failing"`
+			OpenSince  *string `json:"open_since"`
+			Error      *string `json:"error"`
+			Buckets    []struct {
+				T       int64 `json:"t"`
+				Samples int64 `json:"samples"`
+				OK      int64 `json:"ok"`
+			} `json:"buckets"`
+		} `json:"probes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("bad body: %v", err)
+	}
+	if res.Window != "24h" || res.BucketS != 1800 {
+		t.Errorf("window/bucket_s = %q/%d, want 24h/1800", res.Window, res.BucketS)
+	}
+	if len(res.Probes) != 3 {
+		t.Fatalf("probes = %d, want 3 (rows grouped per probe)", len(res.Probes))
+	}
+	pa := res.Probes[0]
+	if pa.ProbeID != probeA.String() || pa.Type != "icmp" || len(pa.Buckets) != 2 {
+		t.Errorf("first probe = %s type %s with %d buckets, want %s icmp with 2",
+			pa.ProbeID, pa.Type, len(pa.Buckets), probeA)
+	}
+	if b := pa.Buckets[0]; b.T != t0.Unix() || b.Samples != 30 || b.OK != 0 {
+		t.Errorf("first bucket = %+v", b)
+	}
+	// Agent-kind targets label by destination site; the synthesized
+	// agent:<id> targets.name must never leak into target.
+	if pa.Target != nil || pa.DstSite == nil || *pa.DstSite != "lon" {
+		t.Errorf("agent-kind labels = target %v dst_site %v, want null/lon", pa.Target, pa.DstSite)
+	}
+	if !pa.Failing || pa.OpenSince == nil || pa.Error == nil || *pa.Error != "i/o timeout" ||
+		pa.LastStatus != "timeout" {
+		t.Errorf("failing probe = %+v, want failing with open_since/error/timeout", pa)
+	}
+	pb2 := res.Probes[1]
+	if pb2.Type != "http" || pb2.TargetKind != "external" ||
+		pb2.Target == nil || *pb2.Target != "corp-vpn" || pb2.DstSite != nil {
+		t.Errorf("external probe = %+v, want http/external/corp-vpn/null dst_site", pb2)
+	}
+	if pb2.Failing || pb2.OpenSince != nil || pb2.Error != nil {
+		t.Errorf("healthy probe carries outage fields: %+v", pb2)
+	}
+	pc := res.Probes[2]
+	if pc.Type != "traceroute" || len(pc.Buckets) != 0 {
+		t.Errorf("silent probe = type %s with %d buckets, want traceroute with buckets:[]",
+			pc.Type, len(pc.Buckets))
+	}
+	if !strings.Contains(w.Body.String(), `"buckets":[]`) {
+		t.Errorf("silent series must serve buckets:[], not null: %s", w.Body)
+	}
+
+	// An agent with no series (or an unknown id) is an empty list, not null.
+	f.probeHealth = nil
+	req = httptest.NewRequest("GET", "/api/v1/agents/"+uuid.New().String()+"/health", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"probes":[]`) {
+		t.Errorf("no series = %d %s, want 200 with probes:[]", w.Code, w.Body)
+	}
+
+	// Only the 24h window exists.
+	req = httptest.NewRequest("GET", "/api/v1/agents/"+agent.String()+"/health?window=7d", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("window=7d = %d, want 400", w.Code)
+	}
+
+	// A malformed id is a 400, not a store call.
+	req = httptest.NewRequest("GET", "/api/v1/agents/not-a-uuid/health", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad id = %d, want 400", w.Code)
 	}
 }
 

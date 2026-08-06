@@ -1436,6 +1436,17 @@ ol.hops li {
     border-left: 3px solid var(--status-down);
   }
 
+  /* The expanded per-probe detail is one full-width cell — the stacked
+     label/value grid treatment would squeeze the strip list into the value
+     column. */
+  table.events tr.agent-detail-row td {
+    display: block;
+  }
+
+  .probe-strip-row {
+    grid-template-columns: 1fr;
+  }
+
   .outage-error,
   .outage-error details {
     max-width: none;
@@ -2465,6 +2476,61 @@ td.fleet-uptime {
   font-weight: 550;
 }
 
+/* Per-probe 24 h detail under an expanded Agents row: one labeled strip per
+   probe series, reusing the fleet strip's segment classes. */
+.probe-strip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.35rem 0;
+}
+
+.probe-strip-row {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) minmax(8rem, 2fr) 4.5rem;
+  align-items: center;
+  gap: 0.3rem 0.75rem;
+}
+
+.probe-strip-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.probe-strip-uptime {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.probe-strip-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.82rem;
+}
+
+.probe-strip-error-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.probe-strip-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  color: var(--ink-3);
+}
+
 .status-marker {
   display: block;
   width: 8px;
@@ -2998,6 +3064,14 @@ tr.probe-disabled > td {
 }
 
 .config-edit-row > td {
+  background: var(--surface-2);
+}
+
+tr.agent-row {
+  cursor: pointer;
+}
+
+.agent-detail-row > td {
   background: var(--surface-2);
 }
 

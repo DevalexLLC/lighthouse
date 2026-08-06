@@ -391,6 +391,26 @@ Full design + milestone plan: `docs/architecture.md`.
   outside `web/public/` on purpose — anything there is copied into
   `web/dist/` at the next build. Public navigation is task-oriented; legacy
   route ids remain aliases and API/path-hop vocabulary is unchanged.
+- Per-probe 24h health detail on `#/agents` (2026-08-06): clicking an agent
+  row (or its Detail button, single-open) expands a per-probe strip list so
+  a degraded agent is attributable to specific probes — e.g. an external
+  http target down for maintenance vs a real link problem. New
+  `GET /api/v1/agents/{id}/health` (24h-only like the fleet endpoint;
+  unknown agent = 200 `probes:[]`, bad uuid = 400): inventory from
+  `series_state` (silent series appear with `buckets:[]`), buckets grouped
+  from raw probe_results by probe_id (caggs don't key on probe_id; 24h <
+  14d raw retention), labels via the ListOutages target→agent→site join —
+  agent-kind targets carry `dst_site` with `target` null (the synthesized
+  agent:<uuid> name never leaks), external carry `target` + an "external"
+  badge; `open_event_id → outage_events` supplies failing/open_since/error
+  (consistent with `probes_failing` by construction). Traceroute series are
+  listed (annotated "path watch") — nothing aggregates across probes here,
+  so no exclusion param. SPA: strip SVG + coverage math + uptime rendering
+  extracted verbatim from FleetAgentsCard into shared
+  `components/HealthStrip.tsx` (`HealthStrip`/`stripStats`/`UptimeValue`);
+  detail fetches lazily on expand with its own 30s poll. Verified in
+  compose: labels/silent-series/400s/401, ICMP-block gate → failing +
+  real error text on exactly the lon→syd icmp row, closed after unblock.
 - Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries
   enrolled_at, config_hash, newest-cert not_after/revoked_at, open
   outage rollups (offline flag + probes_failing count), series totals,
