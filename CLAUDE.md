@@ -312,7 +312,9 @@ Full design + milestone plan: `docs/architecture.md`.
   responsive layouts, and AA-safe semantic text colors. Incidents correlate
   rows by active/resolved state, kind, probe, and normalized error, with
   active/all/resolved filters, search, impact counts, and expandable target
-  detail. Routes and Agents gained task-specific search and health filters;
+  detail. Routes and Agents gained task-specific search and health filters
+  (Routes search also accepts `src -> dst` direction patterns, either side
+  optional, `→` accepted);
   thresholds moved from the map into Settings; Pair Detail and Login now use
   the shared hierarchy. All API contracts and polling behavior are unchanged.
 
