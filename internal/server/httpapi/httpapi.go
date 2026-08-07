@@ -29,6 +29,7 @@ type DB interface {
 	ListSites(ctx context.Context) ([]store.SiteInfo, error)
 	ListAgents(ctx context.Context) ([]store.AgentListInfo, error)
 	AgentHealthSeries(ctx context.Context, window, bucket time.Duration, excludeProbeType int16) ([]store.AgentHealthBucket, error)
+	AgentProbeHealth(ctx context.Context, agentID uuid.UUID, window, bucket time.Duration) ([]store.AgentProbeHealthRow, error)
 	MatrixLatest(ctx context.Context, horizon time.Duration) ([]store.MatrixRow, error)
 	ExpectedPairs(ctx context.Context) ([]store.SitePair, error)
 	SiteEndpoints(ctx context.Context, siteName string) (*store.SiteEndpoints, error)
@@ -125,6 +126,8 @@ func newHandler(sdb DB, static fs.FS, providers OIDCProviders) http.Handler {
 	mux.Handle("GET /api/v1/sites", a.withSession(a.handleSites))
 	mux.Handle("GET /api/v1/agents", a.withSession(a.handleAgents))
 	mux.Handle("GET /api/v1/agents/health", a.withSession(a.handleAgentHealth))
+	// The literal /agents/health above wins over this wildcard for that path.
+	mux.Handle("GET /api/v1/agents/{id}/health", a.withSession(a.handleAgentProbeHealth))
 	mux.Handle("GET /api/v1/matrix", a.withSession(a.handleMatrix))
 	mux.Handle("GET /api/v1/settings", a.withSession(a.handleSettingsGet))
 	// withSession outermost: it populates the session context requireRole

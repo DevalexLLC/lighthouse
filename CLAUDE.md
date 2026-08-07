@@ -393,6 +393,40 @@ Full design + milestone plan: `docs/architecture.md`.
   outside `web/public/` on purpose — anything there is copied into
   `web/dist/` at the next build. Public navigation is task-oriented; legacy
   route ids remain aliases and API/path-hop vocabulary is unchanged.
+- Per-probe 24h health detail on `#/agents` (2026-08-06): clicking an agent
+  row (or its Detail button, single-open) expands a per-probe strip list so
+  a degraded agent is attributable to specific probes — e.g. an external
+  http target down for maintenance vs a real link problem. New
+  `GET /api/v1/agents/{id}/health` (24h-only like the fleet endpoint;
+  unknown agent = 200 `probes:[]`, bad uuid = 400): inventory from
+  `series_state` INTERSECTED with `enabledProbeIDs` (same set as the
+  ListAgents rollup, so the expanded list always agrees with the row's
+  "N of M failing" — disabled probes' retained series rows and their
+  stuck probe_failing events stay out; silent enabled series appear with
+  `buckets:[]`), buckets grouped
+  from raw probe_results by probe_id (caggs don't key on probe_id; 24h <
+  14d raw retention), labels via the ListOutages target→agent→site join —
+  agent-kind targets carry `dst_site` with `target` null (the synthesized
+  agent:<uuid> name never leaks), external carry `target` + an "external"
+  badge; `open_event_id → outage_events` supplies failing/open_since/error
+  (consistent with `probes_failing` by construction). Traceroute series are
+  listed (annotated "path watch") — nothing aggregates across probes here,
+  so no exclusion param. SPA: strip SVG + coverage math + uptime rendering
+  extracted verbatim from FleetAgentsCard into shared
+  `components/HealthStrip.tsx` (`HealthStrip`/`stripStats`/`UptimeValue`);
+  detail fetches lazily on expand with its own 30s poll. Hovering any
+  strip (fleet card + probe detail) shows a map-info-card-style readout
+  for the slot under the pointer — local time window (short zone name
+  appended only when the 24h window crosses a DST transition, so
+  fall-back's repeated hour stays unambiguous), severity pill, success %,
+  N-of-M caption. The card composes `.map-tip` + `.strip-tip`: fixed
+  position (strips live inside scroll containers that would clip an
+  absolute child; flips below the strip when the row is scrolled near the
+  viewport top) and pointer-inert (pure readout, no links — no
+  delayed-clear dance needed); slot resolution is one svg mousemove
+  handler, so the whole strip width is hoverable. Verified in
+  compose: labels/silent-series/400s/401, ICMP-block gate → failing +
+  real error text on exactly the lon→syd icmp row, closed after unblock.
 - Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries
   enrolled_at, config_hash, newest-cert not_after/revoked_at, open
   outage rollups (offline flag + probes_failing count), series totals,

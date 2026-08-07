@@ -138,6 +138,28 @@ type AgentHealthBucket struct {
 	OK      int64
 }
 
+// AgentProbeHealthRow is one (probe series, bucket) row of one agent's
+// per-probe health detail. Label columns repeat on every bucket row of a
+// series; Bucket/Samples/OK are nil for a series with no samples in the
+// window (the LEFT JOIN's single row), so configured-but-silent series
+// still appear. TargetKind/TargetName are nil when the target row is gone
+// (series_state carries no FK to targets); DstSite is nil for external
+// targets.
+type AgentProbeHealthRow struct {
+	ProbeID    uuid.UUID
+	ProbeType  int16
+	TargetKind *string
+	TargetName *string
+	DstSite    *string
+	LastStatus int16
+	LastTime   time.Time
+	OpenedAt   *time.Time // open probe_failing outage; nil = not failing
+	OpenError  *string
+	Bucket     *time.Time
+	Samples    *int64
+	OK         *int64
+}
+
 // MatrixRow is the latest result of one (agent, agent-target, probe type)
 // series, mapped to its ordered site pair.
 type MatrixRow struct {
@@ -386,6 +408,59 @@ func (s *Store) AgentHealthSeries(ctx context.Context, window, bucket time.Durat
 			return nil, fmt.Errorf("agent health series: %w", err)
 		}
 		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// AgentProbeHealth returns one agent's probe series with their bucketed
+// success counts over the window, ordered by probe then bucket (the handler's
+// run-length fold relies on that order). The inventory side is series_state
+// intersected with enabledProbeIDs — exactly the rows ListAgents counts as
+// probes_total, so the expanded detail always agrees with the row's counts:
+// a disabled probe's retained series row (spool-replay dedup) stays out, as
+// does the stuck probe_failing event the rollup filters for the same reason.
+// A configured-and-enabled series with no results in the window still yields
+// one nil-bucket row instead of vanishing. Traceroute series are included
+// as-is: nothing here aggregates across probes, so their run-accounting rows
+// can't poison a ratio the way they would in AgentHealthSeries. Windows must
+// stay inside raw retention (14 d); this reads probe_results directly.
+func (s *Store) AgentProbeHealth(ctx context.Context, agentID uuid.UUID, window, bucket time.Duration) ([]AgentProbeHealthRow, error) {
+	enabled, err := s.enabledProbeIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent probe health: %w", err)
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT ss.probe_id, ss.probe_type, t.kind, t.name, dst.name,
+		        ss.last_status, ss.last_time, oe.opened_at, oe.open_error,
+		        b.bucket, b.samples, b.ok
+		   FROM series_state ss
+		   JOIN unnest($4::uuid[]) AS ep(probe_id) ON ep.probe_id = ss.probe_id
+		   LEFT JOIN targets t ON t.id = ss.target_id
+		   LEFT JOIN agents ta ON ta.id = t.agent_id
+		   LEFT JOIN sites dst ON dst.id = ta.site_id
+		   LEFT JOIN outage_events oe ON oe.id = ss.open_event_id
+		   LEFT JOIN (
+		        SELECT probe_id, time_bucket($2::interval, time) AS bucket,
+		               count(*) AS samples, count(*) FILTER (WHERE status = 1) AS ok
+		          FROM probe_results
+		         WHERE agent_id = $1 AND time > now() - $3::interval
+		         GROUP BY probe_id, bucket
+		   ) b ON b.probe_id = ss.probe_id
+		  WHERE ss.agent_id = $1
+		  ORDER BY ss.probe_id, b.bucket`, agentID, bucket, window, enabled)
+	if err != nil {
+		return nil, fmt.Errorf("agent probe health: %w", err)
+	}
+	defer rows.Close()
+	var out []AgentProbeHealthRow
+	for rows.Next() {
+		var r AgentProbeHealthRow
+		if err := rows.Scan(&r.ProbeID, &r.ProbeType, &r.TargetKind, &r.TargetName, &r.DstSite,
+			&r.LastStatus, &r.LastTime, &r.OpenedAt, &r.OpenError,
+			&r.Bucket, &r.Samples, &r.OK); err != nil {
+			return nil, fmt.Errorf("agent probe health: %w", err)
+		}
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }

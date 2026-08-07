@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	pb "github.com/devalexllc/lighthouse/internal/pb/lighthousev1"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
@@ -123,6 +125,80 @@ func (a *api) handleAgentHealth(w http.ResponseWriter, r *http.Request) {
 		"window":   "24h",
 		"bucket_s": int(agentHealthBucket.Seconds()),
 		"agents":   agents,
+	})
+}
+
+type agentProbeHealthJSON struct {
+	ProbeID string `json:"probe_id"`
+	Type    string `json:"type"`
+	// TargetKind is "agent" or "external"; "" when the target row is gone.
+	TargetKind string `json:"target_kind"`
+	// Target is the external target's name; null for agent-kind targets,
+	// whose targets.name is the synthesized agent:<uuid> handle — the SPA
+	// labels those by dst_site instead.
+	Target     *string                 `json:"target"`
+	DstSite    *string                 `json:"dst_site"`
+	LastStatus string                  `json:"last_status"`
+	LastTime   time.Time               `json:"last_time"`
+	Failing    bool                    `json:"failing"`
+	OpenSince  *time.Time              `json:"open_since"`
+	Error      *string                 `json:"error"`
+	Buckets    []agentHealthBucketJSON `json:"buckets"`
+}
+
+// handleAgentProbeHealth serves one agent's per-probe bucketed success
+// counts for the Agents page's expanded detail. The series inventory comes
+// from series_state, so a configured-but-silent series appears with empty
+// buckets; an unknown agent id is simply an empty list (the SPA only calls
+// with ids it just got from /api/v1/agents).
+func (a *api) handleAgentProbeHealth(w http.ResponseWriter, r *http.Request) {
+	if win := r.URL.Query().Get("window"); win != "" && win != "24h" {
+		writeError(w, http.StatusBadRequest, "unknown window (want 24h)")
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad agent id")
+		return
+	}
+	rows, err := a.db.AgentProbeHealth(r.Context(), id, agentHealthWindow, agentHealthBucket)
+	if err != nil {
+		internalError(w, "agent probe health", err)
+		return
+	}
+	probes := []agentProbeHealthJSON{}
+	for _, row := range rows {
+		pid := row.ProbeID.String()
+		if len(probes) == 0 || probes[len(probes)-1].ProbeID != pid {
+			p := agentProbeHealthJSON{
+				ProbeID:    pid,
+				Type:       probeTypeName(row.ProbeType),
+				LastStatus: probeStatusName(row.LastStatus),
+				LastTime:   row.LastTime,
+				Failing:    row.OpenedAt != nil,
+				OpenSince:  row.OpenedAt,
+				Error:      row.OpenError,
+				DstSite:    row.DstSite,
+				Buckets:    []agentHealthBucketJSON{},
+			}
+			if row.TargetKind != nil {
+				p.TargetKind = *row.TargetKind
+				if *row.TargetKind == "external" {
+					p.Target = row.TargetName
+				}
+			}
+			probes = append(probes, p)
+		}
+		if row.Bucket != nil {
+			last := &probes[len(probes)-1]
+			last.Buckets = append(last.Buckets,
+				agentHealthBucketJSON{T: row.Bucket.Unix(), Samples: *row.Samples, OK: *row.OK})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"window":   "24h",
+		"bucket_s": int(agentHealthBucket.Seconds()),
+		"probes":   probes,
 	})
 }
 

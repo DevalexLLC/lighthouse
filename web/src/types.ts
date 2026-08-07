@@ -68,6 +68,31 @@ export interface AgentHealthResponse {
   agents: AgentHealth[]
 }
 
+// GET /api/v1/agents/{id}/health — one agent's per-probe 24h buckets. The
+// series list comes from series_state, so a configured-but-silent series
+// appears with empty buckets. target is the external target's name and is
+// null for agent-kind targets, which are labeled by dst_site instead;
+// target_kind is '' when the target row is gone.
+export interface AgentProbeHealth {
+  probe_id: string
+  type: string
+  target_kind: 'agent' | 'external' | ''
+  target: string | null
+  dst_site: string | null
+  last_status: string
+  last_time: string
+  failing: boolean
+  open_since: string | null
+  error: string | null
+  buckets: AgentHealthBucket[]
+}
+
+export interface AgentProbeHealthResponse {
+  window: string
+  bucket_s: number
+  probes: AgentProbeHealth[]
+}
+
 export type CellStatus = 'ok' | 'degraded' | 'down' | 'stale'
 
 export interface MatrixProbe {
