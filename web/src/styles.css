@@ -3182,6 +3182,19 @@ button.agent-detail-toggle:hover {
   align-self: start;
 }
 
+/* One-time join-token reveal: the cleartext exists only in this block, so
+   it must be selectable, wrap-safe, and visually unmistakable. */
+.token-reveal {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.85rem;
+  word-break: break-all;
+  user-select: all;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
 @media (max-width: 560px) {
   .config-form .threshold-input input,
   .threshold-input select {

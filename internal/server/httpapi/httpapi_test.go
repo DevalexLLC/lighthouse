@@ -40,6 +40,8 @@ type fakeDB struct {
 	targets     []store.TargetInfo
 	meshes      []store.MeshGroupInfo
 	probes      []store.ProbeConfigInfo
+	siteConfigs []store.SiteAdminInfo
+	joinTokens  []store.JoinTokenInfo
 
 	oidcSettings *store.OIDCSettings
 	oidcUsers    map[string]*store.UserInfo // key: oidc subject

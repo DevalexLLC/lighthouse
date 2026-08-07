@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { apiGet } from '../api'
 import type { SettingsTab } from '../App'
+import EnrollmentPanel from '../components/EnrollmentPanel'
 import MeshesPanel from '../components/MeshesPanel'
 import OIDCSettingsPanel from '../components/OIDCSettingsPanel'
 import ProbesPanel from '../components/ProbesPanel'
+import SitesPanel from '../components/SitesPanel'
 import TargetsPanel from '../components/TargetsPanel'
 import ThresholdSettingsPanel from '../components/ThresholdSettings'
 import type { SettingsResponse } from '../types'
@@ -12,17 +14,21 @@ const POLL_MS = 30_000
 
 const TABS: Array<{ tab: SettingsTab; href: string; label: string }> = [
   { tab: 'thresholds', href: '#/settings', label: 'Thresholds' },
+  { tab: 'sites', href: '#/settings/sites', label: 'Sites' },
   { tab: 'targets', href: '#/settings/targets', label: 'Targets' },
   { tab: 'meshes', href: '#/settings/meshes', label: 'Meshes' },
   { tab: 'probes', href: '#/settings/probes', label: 'Probes' },
+  { tab: 'enrollment', href: '#/settings/enrollment', label: 'Enrollment' },
   { tab: 'authentication', href: '#/settings/authentication', label: 'Authentication' },
 ]
 
 const TAB_INTRO: Record<SettingsTab, string> = {
   thresholds: 'Shared thresholds used to classify network health across the dashboard.',
+  sites: 'The locations agents enroll into, with optional map placement and display metadata.',
   targets: 'External hosts and URLs that site agents probe.',
   meshes: 'Site groups whose members probe each other in both directions.',
   probes: 'The measurement workload pushed to every affected agent within ~30 seconds.',
+  enrollment: 'Single-use join tokens that enroll new agents into a site.',
   authentication: 'Optional single sign-on via an OpenID Connect provider. Local accounts always keep working.',
 }
 
@@ -91,6 +97,10 @@ export default function Settings({
       </nav>
       {tab === 'authentication' ? (
         <OIDCSettingsPanel isAdmin={isAdmin} onAuthError={onAuthError} />
+      ) : tab === 'sites' ? (
+        <SitesPanel isAdmin={isAdmin} onAuthError={onAuthError} />
+      ) : tab === 'enrollment' ? (
+        <EnrollmentPanel isAdmin={isAdmin} onAuthError={onAuthError} />
       ) : tab === 'targets' ? (
         <TargetsPanel isAdmin={isAdmin} onAuthError={onAuthError} />
       ) : tab === 'meshes' ? (

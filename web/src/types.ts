@@ -289,6 +289,49 @@ export interface MeshesConfigResponse {
   meshes: MeshConfig[]
 }
 
+export interface SiteConfig {
+  id: string
+  name: string
+  display_name: string
+  location: string
+  // null = unplaced; 0 is a real coordinate, never truthiness-check.
+  latitude: number | null
+  longitude: number | null
+  created_at: string
+  agent_count: number
+  mesh_count: number
+  probe_count: number
+}
+
+export interface SitesConfigResponse {
+  sites: SiteConfig[]
+}
+
+// Join tokens (/api/v1/config/tokens) are admin-only including the list.
+// Status (active / expired / used) is derived client-side from these fields.
+export interface JoinToken {
+  id: string
+  site: string
+  created_by: string
+  created_at: string
+  expires_at: string
+  used_at: string | null
+  used_by_agent: string | null
+  used_by_hostname: string | null
+}
+
+export interface TokensResponse {
+  tokens: JoinToken[]
+}
+
+// The cleartext token exists only in this response — shown once, never
+// recoverable.
+export interface TokenCreateResponse {
+  token: string
+  site: string
+  expires_at: string
+}
+
 export interface ProbeConfig {
   id: string
   site?: string

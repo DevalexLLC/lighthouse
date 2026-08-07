@@ -17,6 +17,7 @@ import (
 
 	"github.com/devalexllc/lighthouse/internal/server/config"
 	"github.com/devalexllc/lighthouse/internal/server/probeadmin"
+	"github.com/devalexllc/lighthouse/internal/server/siteadmin"
 	"github.com/devalexllc/lighthouse/internal/server/store"
 )
 
@@ -55,16 +56,8 @@ func adminStore(cfg config.Config) (*store.Store, context.Context, context.Cance
 	return st, ctx, cancel, nil
 }
 
-// validateCoords rejects out-of-range map positions.
-func validateCoords(lat, lon float64) error {
-	if lat < -90 || lat > 90 {
-		return fmt.Errorf("--lat must be between -90 and 90, got %g", lat)
-	}
-	if lon < -180 || lon > 180 {
-		return fmt.Errorf("--lon must be between -180 and 180, got %g", lon)
-	}
-	return nil
-}
+// cliSiteFields makes shared site validation errors name the CLI flags.
+var cliSiteFields = siteadmin.FieldNames{Name: "--name", Lat: "--lat", Lon: "--lon"}
 
 func cmdSite(args []string) error {
 	const use = "usage: lighthouse-server site list|set ..."
@@ -108,6 +101,7 @@ func cmdSite(args []string) error {
 		name := fs.String("name", "", "site name (must already exist)")
 		lat := fs.Float64("lat", 0, "latitude in degrees (-90..90), with --lon")
 		lon := fs.Float64("lon", 0, "longitude in degrees (-180..180), with --lat")
+		clearCoords := fs.Bool("clear-coords", false, "unplace the site: reset latitude/longitude to unset")
 		display := fs.String("display-name", "", "human-friendly site name")
 		location := fs.String("location", "", "free-text location label")
 		cfg, err := loadConfig(fs, args[1:])
@@ -124,16 +118,20 @@ func cmdSite(args []string) error {
 		if set["lat"] != set["lon"] {
 			return fmt.Errorf("--lat and --lon must be given together")
 		}
-		if !set["lat"] && !set["display-name"] && !set["location"] {
-			return fmt.Errorf("nothing to set: give --lat/--lon, --display-name, or --location")
+		if *clearCoords && set["lat"] {
+			return fmt.Errorf("--clear-coords cannot be combined with --lat/--lon")
+		}
+		if !set["lat"] && !*clearCoords && !set["display-name"] && !set["location"] {
+			return fmt.Errorf("nothing to set: give --lat/--lon, --clear-coords, --display-name, or --location")
 		}
 		var up store.SiteUpdate
 		if set["lat"] {
-			if err := validateCoords(*lat, *lon); err != nil {
-				return err
+			if problems := siteadmin.ValidateCoords(*lat, *lon, cliSiteFields); len(problems) > 0 {
+				return errors.New(strings.Join(problems, "; "))
 			}
 			up.Latitude, up.Longitude = lat, lon
 		}
+		up.ClearCoords = *clearCoords
 		if set["display-name"] {
 			up.DisplayName = display
 		}
