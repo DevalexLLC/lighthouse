@@ -1250,17 +1250,134 @@ Work from the compose directory on the control-plane host:
 
 ### Agents
 
-RPM agents upgrade with the new package:
+Agents and the control plane may be upgraded independently, in either order,
+because protocol changes are additive: an old agent keeps working against a
+new server, and a new agent keeps working against an old one. Upgrade agents
+one site at a time so a bad release is visible on the dashboard before it
+reaches the whole fleet.
+
+#### RPM agents
 
 ```sh
 sudo dnf upgrade ./<new-rpm-file>
+sudo systemctl status lighthouse-agent
 ```
 
-For container agents, pull/load the new image, remove and recreate only the
-container with the same config bind mount and state volume. Do not delete the
-state volume: it contains the agent identity and offline spool. Agents and the
-control plane may be upgraded independently because protocol changes are
-additive.
+The package restarts the service, which runs `selfcheck` before every start.
+`/etc/lighthouse/agent.yaml` and `/var/lib/lighthouse-agent` are preserved.
+
+#### Container agents
+
+A container agent is upgraded by **replacing the container, not the volume**.
+The image holds only the binary; everything that must survive lives outside
+it — the agent's identity (private key and certificate) and its offline spool
+are in the state volume, and its configuration is in the bind-mounted
+`agent.yaml`. Recreating the container therefore needs no new token and no
+re-enrollment.
+
+Run these on the agent host. They assume the container name, config path, and
+volume from [section 9](#9-deploy-a-container-agent); substitute your own if
+they differ.
+
+1. **Record what is running now**, so a rollback has an exact target:
+
+   ```sh
+   docker inspect --format '{{.Config.Image}}' lighthouse-agent
+   ```
+
+2. **Get the new image.** Online:
+
+   ```sh
+   docker pull ghcr.io/devalexllc/lighthouse-agent:<new-version>
+   ```
+
+   Offline: transfer the agent image tar as in
+   [section 2](#offline-installation) and `docker load -i` it here. Either
+   way the running agent is untouched at this point — it keeps probing on the
+   old image until step 3.
+
+3. **Stop the old container, then remove it.** Two commands, not
+   `docker rm -f`:
+
+   ```sh
+   docker stop -t 60 lighthouse-agent
+   docker rm lighthouse-agent
+   ```
+
+   `docker stop` sends SIGTERM, which the agent handles: it waits for
+   in-flight probe runs to return, then fsyncs the active spool segment
+   before exiting. `docker rm -f` sends SIGKILL instead, which can land
+   between the three writes that make up one spool record — the next start
+   detects the bad checksum and truncates the torn tail, so the spool
+   self-heals, but that one in-flight result is gone.
+
+   Raise `-t` above your longest configured probe timeout. Docker's default
+   grace is 10 seconds and then it escalates to SIGKILL on its own,
+   which reopens exactly the window the graceful stop was meant to close.
+   Shutdown cannot finish faster than the probe still running when SIGTERM
+   arrives, and a probe is not always interruptible — the DNS prober sets
+   its socket timeouts from the run deadline and cannot be cut short
+   mid-exchange against an unresponsive resolver. The 30-second traceroute
+   in [section 11.2](#112-add-baseline-icmp-and-traceroute-probes) already
+   exceeds the default on its own, so `-t 60` covers this guide's own
+   examples; adjust it if you configured longer timeouts.
+
+   Neither command endangers the state volume: `docker rm -v` removes only
+   *anonymous* volumes, and `lighthouse-agent-state` is named. Destroying it
+   takes a deliberate `docker volume rm`.
+
+4. **Recreate it on the new tag**, with the same flags as the original
+   `docker run` — only the image tag changes:
+
+   ```sh
+   docker run -d \
+     --name lighthouse-agent \
+     --restart unless-stopped \
+     --cap-add NET_RAW \
+     --mount type=bind,src=/opt/lighthouse-agent/agent.yaml,dst=/etc/lighthouse/agent.yaml,readonly \
+     --mount type=volume,src=lighthouse-agent-state,dst=/var/lib/lighthouse-agent \
+     ghcr.io/devalexllc/lighthouse-agent:<new-version>
+   ```
+
+   `--cap-add NET_RAW` is still mandatory — see
+   [section 9.2](#92-enroll-into-the-persistent-volume) for why the container
+   cannot even start without it. Forgetting `--mount type=volume` is the easy
+   mistake here, and it is loud rather than destructive: the new container
+   comes up with no identity and fails, but `lighthouse-agent-state` is
+   untouched. Remove the failed container and recreate it with the mount —
+   identity and spooled results come back intact. Do not re-enroll to escape
+   this; a fresh enrollment would replace a working identity for no reason.
+
+5. **Verify:**
+
+   ```sh
+   docker exec lighthouse-agent lighthouse-agent version
+   docker exec lighthouse-agent lighthouse-agent selfcheck \
+     --config /etc/lighthouse/agent.yaml
+   docker logs --tail=50 lighthouse-agent
+   ```
+
+   The logs should show the agent connecting and receiving a config snapshot
+   within about 30 seconds. Confirm on the dashboard's **Agents** page that
+   the site's last-update time is advancing again.
+
+Steps 3 and 4 are a measurement gap, not a spool: the agent cannot measure
+while it does not exist, so those probe intervals are simply missing from
+history. Run the two steps back to back. Results already spooled from an
+earlier disconnection are in the volume and replay after the new container
+connects.
+
+To roll back, repeat steps 3 and 4 with the tag recorded in step 1. The state
+volume is unchanged by an upgrade, so a downgraded agent resumes with the same
+identity.
+
+If an agent runs under its own Compose file rather than `docker run`, the
+equivalent is to update the pinned tag and then
+`docker compose up -d --force-recreate lighthouse-agent`. Give that service a
+`stop_grace_period` matching the `-t` value above, since Compose applies its
+own 10-second default when the key is absent. Never run
+`docker compose down -v` on an agent host: that deletes the identity volume
+and forces a re-enrollment with a fresh token.
 
 ## Backup scope
 
