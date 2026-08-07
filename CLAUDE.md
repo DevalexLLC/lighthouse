@@ -72,6 +72,20 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- UTC⇄local display toggle (2026-08-07): `web/src/timezone.ts` mirrors the
+  theme store (localStorage `lighthouse-timezone`; anything but a stored
+  `local` = UTC, the default — ops convention; no pre-paint script needed),
+  toggled by a topbar text-pill `TimezoneToggle`. `fmtTime` reads the mode
+  (UTC = fixed `YYYY-MM-DD HH:MM:SS UTC`, local = locale string +
+  `timeZoneName: 'short'` so every absolute time carries its zone); every
+  component calling it subscribes via `useTimezone()` — module state alone
+  re-renders nothing, and an App-root re-render would break under memoized
+  subtrees. PairDetail threads `mode` into the mkOptions cache key + memo
+  deps and sets uPlot `tzDate` (Etc/UTC) in UTC mode so axis ticks and the
+  live-legend readout follow; HealthStrip's hover card renders slot ranges
+  in UTC (one ` UTC` tag, DST zone-labeling is local-mode-only). Relative
+  times (`fmtAgo`, durations) are zone-independent and untouched.
+
 - Site CRUD + enrollment-token management in the web UI (2026-08-07):
   Settings gained **Sites** and **Enrollment** tabs
   (`#/settings/sites|enrollment`). New surface `/api/v1/config/sites`

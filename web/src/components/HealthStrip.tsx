@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTimezone } from '../timezone'
 import type { AgentHealthBucket } from '../types'
 
 // 48 × 30-min slots = the 24 h the agent-health endpoints serve.
@@ -16,8 +17,10 @@ const SLOT_LABEL: Record<SlotClass, string> = {
   nodata: 'No data',
 }
 
-function slotTime(epochS: number, withZone: boolean): string {
-  return new Date(epochS * 1000).toLocaleTimeString(
+function slotTime(epochS: number, utc: boolean, withZone: boolean): string {
+  const d = new Date(epochS * 1000)
+  if (utc) return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+  return d.toLocaleTimeString(
     [],
     withZone ? { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' } : { hour: '2-digit', minute: '2-digit' },
   )
@@ -48,14 +51,17 @@ export default function HealthStrip({
   endS: number
   label: string
 }) {
+  const { mode } = useTimezone()
+  const utc = mode === 'utc'
   const [hover, setHover] = useState<{ i: number; x: number; y: number; below: boolean } | null>(null)
   const byStart = new Map(buckets.map((b) => [b.t, b]))
-  // A UTC-offset change inside the window means a DST transition: label
-  // every slot with the zone that day so repeated wall-clock hours stay
-  // distinguishable (fall-back repeats an hour, so two buckets would
-  // otherwise share a label and a range could read reversed).
+  // Local mode only: a UTC-offset change inside the window means a DST
+  // transition — label every slot with the zone that day so repeated
+  // wall-clock hours stay distinguishable (fall-back repeats an hour, so
+  // two buckets would otherwise share a label and a range could read
+  // reversed). UTC mode has no transitions; the range carries one UTC tag.
   const withZone =
-    new Date((endS - SLOTS * bucketS) * 1000).getTimezoneOffset() !== new Date(endS * 1000).getTimezoneOffset()
+    !utc && new Date((endS - SLOTS * bucketS) * 1000).getTimezoneOffset() !== new Date(endS * 1000).getTimezoneOffset()
   const slots: Slot[] = []
   for (let i = 0; i < SLOTS; i++) {
     const t = endS - (SLOTS - i) * bucketS
@@ -65,7 +71,8 @@ export default function HealthStrip({
     else if (b.ok === 0) cls = 'down'
     else if (b.ok < b.samples) cls = 'degraded'
     else cls = 'ok'
-    slots.push({ cls, range: `${slotTime(t, withZone)}–${slotTime(t + bucketS, withZone)}`, b })
+    const range = `${slotTime(t, utc, withZone)}–${slotTime(t + bucketS, utc, withZone)}${utc ? ' UTC' : ''}`
+    slots.push({ cls, range, b })
   }
 
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {

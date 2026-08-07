@@ -1,5 +1,7 @@
 // Human formatting for wire microseconds and timestamps.
 
+import { getTZMode } from './timezone'
+
 // Value/unit split so headlines can typeset the unit smaller than the number.
 export function fmtLatencyParts(us: number | null | undefined): { value: string; unit: string } {
   if (us == null) return { value: '—', unit: '' }
@@ -40,9 +42,17 @@ export function fmtLatencyGroup(values: (number | null | undefined)[]): string {
   return `${values.map((v) => fmtLatencyInUnit(v, unit)).join(' / ')} ${unit}`
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+// Absolute times follow the topbar UTC/Local toggle and always carry their
+// zone, so no rendered time is ambiguous. Callers must subscribe via
+// useTimezone() to re-render on toggle (this reads module state).
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString()
+  const d = new Date(iso)
+  if (getTZMode() === 'local') return d.toLocaleString(undefined, { timeZoneName: 'short' })
+  const date = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`
+  return `${date} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`
 }
 
 // Compact relative time for "last seen" style fields.

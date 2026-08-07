@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPost } from '../api'
 import { fmtAgo, fmtTime } from '../format'
+import { useTimezone } from '../timezone'
 import type { JoinToken, SitesConfigResponse, TokenCreateResponse, TokensResponse } from '../types'
 import ConfirmButton from './ConfirmButton'
 
@@ -31,6 +32,7 @@ export default function EnrollmentPanel({
   isAdmin: boolean
   onAuthError: (err: unknown) => void
 }) {
+  useTimezone() // re-render fmtTime renders on UTC/local toggle
   const [data, setData] = useState<TokensResponse | null>(null)
   const [siteNames, setSiteNames] = useState<string[]>([])
   const [error, setError] = useState('')
