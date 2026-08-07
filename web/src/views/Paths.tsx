@@ -137,8 +137,23 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return data?.events ?? []
-    return (data?.events ?? []).filter((event) =>
+    const events = data?.events ?? []
+    if (!needle) return events
+    // "src -> dst" filters by direction; either side may be empty ("lon ->",
+    // "-> ny"). "→" is accepted so a copied row header works as a query.
+    const parts = needle.split(/->|→/)
+    if (parts.length > 1) {
+      const src = parts[0].trim()
+      const dst = parts.slice(1).join('->').trim()
+      return events.filter((event) => {
+        const srcMatch = !src || event.src_site.toLowerCase().includes(src)
+        const dstMatch =
+          !dst ||
+          [event.dst_site, event.target].filter(Boolean).some((value) => String(value).toLowerCase().includes(dst))
+        return srcMatch && dstMatch
+      })
+    }
+    return events.filter((event) =>
       [event.src_site, event.dst_site, event.target, event.agent]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle)),
@@ -188,7 +203,7 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
           <span className="sr-only">Search routes</span>
           <input
             type="search"
-            placeholder="Search source, destination, or agent"
+            placeholder={'Search source, destination, or agent — or "lon -> ny"'}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -216,7 +231,11 @@ export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => 
         {visible.length === 0 ? (
           <div className="empty-state">
             <strong>{query ? 'No matching route changes' : 'Routes stable'}</strong>
-            <span>{query ? 'Try a different site or agent.' : 'No path changes in this window.'}</span>
+            <span>
+              {query
+                ? 'Try a different site or agent, or a direction pattern like "lon ->".'
+                : 'No path changes in this window.'}
+            </span>
           </div>
         ) : (
           <>
