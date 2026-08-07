@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
 import { fmtAgo, fmtTime } from '../format'
+import { useTimezone } from '../timezone'
 import type { Hop, PathEvent, PathEventsResponse, Window } from '../types'
 import { WINDOWS } from '../types'
 
@@ -107,6 +108,7 @@ function EventRow({ e }: { e: PathEvent }) {
 }
 
 export default function Paths({ onAuthError }: { onAuthError: (err: unknown) => void }) {
+  useTimezone() // re-render fmtTime tooltips on UTC/local toggle
   const [win, setWin] = useState<Window>('24h')
   const [data, setData] = useState<PathEventsResponse | null>(null)
   const [error, setError] = useState('')

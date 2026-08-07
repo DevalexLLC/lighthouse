@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type uPlot from 'uplot'
+import uPlot from 'uplot'
 import { apiGet } from '../api'
 import Chart from '../components/Chart'
 import { useTheme } from '../theme'
+import { useTimezone } from '../timezone'
 import {
   fmtAgo,
   fmtLatency,
@@ -258,6 +259,9 @@ export default function PairDetail({
   const [win, setWin] = useState<Window>('24h')
   const [metric, setMetric] = useState<Metric>('latency')
   const { resolved } = useTheme()
+  // Also covers the fmtTime tooltips below; mode reaches the charts through
+  // mkOptions so axis ticks and the live-legend readout follow the toggle.
+  const { mode } = useTimezone()
   const [pair, setPair] = useState<PairResponse | null>(null)
   const [series, setSeries] = useState<SeriesResponse | null>(null)
   const [paths, setPaths] = useState<TracerouteResponse | null>(null)
@@ -312,7 +316,7 @@ export default function PairDetail({
       // charts — whenever loss crossed a ceiling band.
       // The pair and window are keyed too, so a different dataset always gets
       // a fresh plot rather than inheriting one built for the old series.
-      const key = [a, b, win, direction, axisLabel, withPctl, metric === 'loss' ? lossCeiling : ''].join('|')
+      const key = [a, b, win, direction, axisLabel, withPctl, metric === 'loss' ? lossCeiling : '', mode].join('|')
       const cached = cache.get(key)
       if (cached) return cached
       const c = COLORS[resolved]
@@ -352,16 +356,19 @@ export default function PairDetail({
         cursor: { drag: { x: true, y: false } },
         legend: { live: true },
         plugins: [latestLegendPlugin()],
+        // UTC mode pins axis ticks and the live-legend x readout to UTC
+        // wall clock; local mode keeps uPlot's default (browser zone).
+        ...(mode === 'utc' ? { tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC') } : {}),
       }
       cache.set(key, options)
       return options
     }
     // Dropping the cache entirely on a metric change (the series shape
-    // differs) or a theme flip is what makes every identity new, so Chart
-    // recreates uPlot with the right palette and charts recolor live on
-    // toggle. Nothing in the key changes on a poll, so charts survive
-    // refreshes.
-  }, [metric, resolved, win, a, b])
+    // differs), a theme flip, or a timezone flip is what makes every
+    // identity new, so Chart recreates uPlot with the right palette and
+    // axis zone and charts update live on toggle. Nothing in the key
+    // changes on a poll, so charts survive refreshes.
+  }, [metric, resolved, mode, win, a, b])
 
   if (error && !series)
     return (

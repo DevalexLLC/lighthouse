@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
 import { fmtAgo, fmtTime } from '../format'
+import { useTimezone } from '../timezone'
 import type { OutageEvent, OutagesResponse, Window } from '../types'
 import { WINDOWS } from '../types'
 
@@ -151,6 +152,7 @@ function IncidentGroupRow({ group }: { group: IncidentGroup }) {
 }
 
 export default function Outages({ onAuthError }: { onAuthError: (err: unknown) => void }) {
+  useTimezone() // re-render fmtTime tooltips on UTC/local toggle
   const [win, setWin] = useState<Window>('24h')
   const [filter, setFilter] = useState<IncidentFilter>('active')
   const [query, setQuery] = useState('')
