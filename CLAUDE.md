@@ -93,10 +93,20 @@ Full design + milestone plan: `docs/architecture.md`.
 - Copyright + third-party attribution (2026-08-07): the repo previously had
   a stock Apache-2.0 `LICENSE` and nothing else — no copyright holder named
   anywhere, no `NOTICE`, and the RPM shipped LICENSE while the images and
-  the air-gap bundle shipped no legal files at all. Now: LICENSE's appendix
-  names Devalex LLC, a hand-written `NOTICE` carries the §4(d) attribution
-  (deliberately short — it POINTS at the generated file rather than
-  inlining dependency notices, so it can never drift), and
+  the air-gap bundle shipped no legal files at all. Now: a hand-written
+  `NOTICE` carries the §4(d) attribution (deliberately short — it POINTS at
+  the generated file rather than inlining dependency notices, so it can
+  never drift). Do NOT fill in `LICENSE`'s appendix placeholder: it was
+  briefly set to `Copyright 2026 Devalex LLC` and reverted to the canonical
+  `[yyyy] [name of copyright owner]`, because that block is Apache's own
+  instructional boilerplate rather than a project field — editing it
+  modifies canonical license text and can defeat strict SPDX matchers. The
+  ASF convention is verbatim LICENSE + NOTICE, which is what this repo now
+  does. **The holder/year string lives in FIVE places** — change them
+  together: `NOTICE`, `README.md`'s License section, the header emitted by
+  `tools/gen-third-party-notices.sh` (so `THIRD-PARTY-NOTICES` is
+  regenerated, never hand-edited), and the SPA's `views/About.tsx` +
+  `views/Login.tsx`. And
   `THIRD-PARTY-NOTICES` reproduces the license + notice text of everything
   that actually ships. Scope was the whole lesson here: `vendor/` alone is
   NOT what ships. The Go stdlib is statically linked, and `web/embed.go`
