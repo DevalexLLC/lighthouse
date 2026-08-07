@@ -45,6 +45,8 @@ Usage:
                                                      create a dashboard user
   lighthouse-server seed --config <file> [--days 90]
                                                      load synthetic probe history (dev/gate)
+  lighthouse-server healthcheck --config <file> [--timeout 5s]
+                                                     probe the dashboard /healthz (container HEALTHCHECK)
   lighthouse-server version                          print version and exit
 `
 
@@ -75,6 +77,8 @@ func main() {
 		err = cmdUser(os.Args[2:])
 	case "seed":
 		err = cmdSeed(os.Args[2:])
+	case "healthcheck":
+		err = cmdHealthcheck(os.Args[2:])
 	case "version", "--version":
 		fmt.Println("lighthouse-server", version.String())
 		return

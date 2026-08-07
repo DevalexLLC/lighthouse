@@ -1122,6 +1122,28 @@ default Docker daemon prints `00000000a80425fb`; the same daemon with
 `NET_RAW` removed prints `00000000a80405fb`. If bit `0x2000` is clear, the
 runtime is dropping it and every `lighthouse-agent` container needs the flag.
 
+### Zombie `ssl_client` processes accumulate on the control-plane host
+
+Affects control planes running a server image at or before v0.2.1. That
+image's healthcheck used BusyBox `wget` over HTTPS, which forks `ssl_client`
+and exits without reaping it. The orphan is reparented to the container's PID
+1 — `lighthouse-server` itself — which does not reap, so each 30-second check
+left one permanent zombie on the host process table (about 2 per minute, or
+2,900 per day). They are harmless individually but consume PID-table slots
+indefinitely.
+
+Confirm the parent is the server container:
+
+```sh
+ps -eo pid,ppid,stat,comm | awk '$3 ~ /Z/'
+docker inspect --format '{{.State.Pid}}' <server-container>
+```
+
+Any release after v0.2.1 fixes it: the healthcheck is now an in-process
+`lighthouse-server healthcheck` that forks nothing. Zombies are reaped only
+when PID 1 exits, so the upgrade's container recreation clears the existing
+backlog; no host reboot is required.
+
 ## Certificate lifecycle
 
 - Agent certificates are valid for 30 days by default and renew automatically

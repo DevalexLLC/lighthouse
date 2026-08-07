@@ -33,8 +33,18 @@ RUN adduser -S -D -H -u 10001 -s /sbin/nologin lighthouse \
 COPY --from=build /out/lighthouse-server /usr/local/bin/lighthouse-server
 USER 10001
 # /healthz is unauthenticated by contract (httpapi tests enforce it); the
-# dashboard cert is typically self-signed or internal, hence no verify.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
-    CMD wget -q --no-check-certificate -O /dev/null https://127.0.0.1:8080/healthz || exit 1
+# subcommand reads listen.http from the config and skips certificate
+# verification (see cmd/lighthouse-server/healthcheck.go).
+#
+# Exec form, and a probe that forks nothing: the shell form would fork
+# /bin/sh, and the previous `wget https://…` forked BusyBox ssl_client and
+# exited without reaping it. Container PID 1 is this Go binary, which never
+# calls wait(2), so each check leaked one zombie onto the HOST process table
+# — ~2/min, forever. Any replacement must stay fork-free.
+#
+# The runtime timeout stays above the probe's own deadline (5 s default) so a
+# hung check reports its own error instead of being killed mid-flight.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+    CMD ["lighthouse-server", "healthcheck", "--config", "/etc/lighthouse/server.yaml"]
 ENTRYPOINT ["lighthouse-server"]
 CMD ["serve", "--config", "/etc/lighthouse/server.yaml"]
