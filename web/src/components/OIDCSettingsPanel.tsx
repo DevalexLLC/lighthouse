@@ -300,16 +300,25 @@ export default function OIDCSettingsPanel({
           break-glass access, whatever the state of the provider.
         </p>
         <div className="config-form">
-          <label className="threshold-field oidc-enable">
-            <span className="eyebrow">Status</span>
-            <span className="threshold-input">
-              <input
-                type="checkbox"
-                checked={current.enabled}
-                disabled={saving}
-                onChange={(e) => update({ enabled: e.target.checked })}
-              />
-              <span className="hint">{current.enabled ? 'Single sign-on enabled' : 'Single sign-on disabled'}</span>
+          <label className="oidc-enable">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-checked={current.enabled}
+              checked={current.enabled}
+              disabled={saving}
+              onChange={(e) => update({ enabled: e.target.checked })}
+            />
+            <span className="oidc-enable-copy">
+              <span className="oidc-enable-title">Enable single sign-on</span>
+              <span className="hint">
+                {current.enabled
+                  ? 'The login page offers sign-in through the provider below.'
+                  : 'Only local accounts can sign in.'}
+              </span>
+            </span>
+            <span className={current.enabled ? 'oidc-enable-state is-on' : 'oidc-enable-state'}>
+              {current.enabled ? 'Enabled' : 'Disabled'}
             </span>
           </label>
           <div className="config-form-grid">
