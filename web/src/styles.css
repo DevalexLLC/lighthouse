@@ -399,6 +399,72 @@ button.linklike:hover {
   background: var(--bg);
 }
 
+/* Attribution byline; static, so it never shifts the form as state changes. */
+.login-legal {
+  margin: 0.35rem 0 0;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 0.78rem;
+}
+
+/* ---- About ---- */
+.about-card {
+  max-width: 44rem;
+}
+
+.about-ident {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.about-mark {
+  width: 1.6rem;
+  height: 1.6rem;
+}
+
+/* Same shape as .pair-card dl: label left, value right, hairline separated. */
+.about-facts {
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.about-facts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.about-facts > div + div {
+  border-top: 1px solid var(--border);
+  padding-top: 0.55rem;
+}
+
+.about-facts dt {
+  color: var(--ink-3);
+  font-size: 0.82rem;
+}
+
+.about-facts dd {
+  margin: 0;
+  text-align: right;
+}
+
+.about-note {
+  margin: 0 0 0.9rem;
+  color: var(--ink-2);
+}
+
+.about-note code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
 /* Settings → Authentication */
 .oidc-admin-values textarea {
   width: 100%;

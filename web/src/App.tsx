@@ -4,6 +4,7 @@ import type { AuthProviders, LoginResponse, User } from './types'
 import LogoMark from './components/LogoMark'
 import ThemeToggle from './components/ThemeToggle'
 import TimezoneToggle from './components/TimezoneToggle'
+import About from './views/About'
 import Agents from './views/Agents'
 import Login from './views/Login'
 import Overview from './views/Overview'
@@ -32,6 +33,7 @@ type Route =
   | { view: 'incidents' }
   | { view: 'routes' }
   | { view: 'agents' }
+  | { view: 'about' }
   | { view: 'settings'; tab: SettingsTab }
 
 function parseHash(hash: string): Route {
@@ -42,6 +44,7 @@ function parseHash(hash: string): Route {
   if (parts[0] === 'incidents' || parts[0] === 'outages') return { view: 'incidents' }
   if (parts[0] === 'routes' || parts[0] === 'paths') return { view: 'routes' }
   if (parts[0] === 'agents') return { view: 'agents' }
+  if (parts[0] === 'about') return { view: 'about' }
   if (parts[0] === 'settings') {
     // #/settings/<tab>; unknown or absent tabs land on thresholds so the
     // plain #/settings bookmark (and the user-menu link) keep working.
@@ -64,6 +67,7 @@ const NAV: Array<{ href: string; label: string; isActive: (r: Route) => boolean 
 export default function App() {
   const [booted, setBooted] = useState(false)
   const [user, setUser] = useState<User | null>(null)
+  const [serverVersion, setServerVersion] = useState('')
   const [sso, setSso] = useState(false)
   const [route, setRoute] = useState<Route>(() => parseHash(location.hash))
 
@@ -79,6 +83,7 @@ export default function App() {
       .then((res) => {
         setCsrfToken(res.csrf_token)
         setUser(res.user)
+        setServerVersion(res.version)
       })
       .catch(() => setUser(null))
       .finally(() => setBooted(true))
@@ -128,6 +133,7 @@ export default function App() {
         onLogin={(res) => {
           setCsrfToken(res.csrf_token)
           setUser(res.user)
+          setServerVersion(res.version)
         }}
       />
     )
@@ -179,6 +185,15 @@ export default function App() {
                   Settings
                 </a>
               )}
+              {/* Not admin-gated, unlike Settings: provenance and the server
+                  build are useful to every role. */}
+              <a
+                href="#/about"
+                aria-current={route.view === 'about' ? 'page' : undefined}
+                onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}
+              >
+                About
+              </a>
               <button type="button" onClick={logout}>
                 Log out
               </button>
@@ -197,6 +212,8 @@ export default function App() {
           <Agents onAuthError={onAuthError} />
         ) : route.view === 'settings' ? (
           <Settings tab={route.tab} isAdmin={user.role === 'admin'} onAuthError={onAuthError} />
+        ) : route.view === 'about' ? (
+          <About version={serverVersion} />
         ) : (
           <Paths onAuthError={onAuthError} />
         )}

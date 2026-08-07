@@ -12,6 +12,7 @@ import (
 
 	"github.com/devalexllc/lighthouse/internal/server/auth"
 	"github.com/devalexllc/lighthouse/internal/server/store"
+	"github.com/devalexllc/lighthouse/internal/version"
 )
 
 const (
@@ -27,9 +28,14 @@ type userJSON struct {
 	Role     string `json:"role"`
 }
 
+// loginResponse is shared by handleLogin and handleMe, so the dashboard
+// learns the server build on both the fresh-login and session-restore paths.
+// Both are post-authentication: the open auth/providers endpoint the login
+// screen calls deliberately carries no version.
 type loginResponse struct {
 	User      userJSON `json:"user"`
 	CSRFToken string   `json:"csrf_token"`
+	Version   string   `json:"version"`
 }
 
 // handleLogin authenticates a username/password and mints a session.
@@ -79,6 +85,7 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{
 		User:      userJSON{Username: user.Username, Role: user.Role},
 		CSRFToken: csrf,
+		Version:   version.String(),
 	})
 }
 
@@ -148,6 +155,7 @@ func (a *api) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{
 		User:      userJSON{Username: s.Username, Role: s.Role},
 		CSRFToken: s.CSRFToken,
+		Version:   version.String(),
 	})
 }
 

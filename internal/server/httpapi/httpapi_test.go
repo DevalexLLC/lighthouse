@@ -590,6 +590,17 @@ func TestMeAndLogoutCSRF(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), csrf) {
 		t.Fatalf("me = %d %s", w.Code, w.Body)
 	}
+	// The About page renders this; an empty string would render as a blank
+	// field rather than failing, so pin it here.
+	var me struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &me); err != nil {
+		t.Fatalf("bad me body: %v", err)
+	}
+	if me.Version == "" {
+		t.Errorf("me carries no version: %s", w.Body)
+	}
 
 	// logout without CSRF token → 403, session survives.
 	req = httptest.NewRequest("POST", "/api/v1/auth/logout", nil)

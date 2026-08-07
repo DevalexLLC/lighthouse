@@ -116,6 +116,16 @@ func TestAuthProvidersOpenAndShape(t *testing.T) {
 	if out := get(); !out["oidc"].Enabled {
 		t.Error("enabled settings must advertise oidc enabled")
 	}
+
+	// This endpoint is unauthenticated, so it must stay a bare enabled flag.
+	// The server build is deliberately post-auth only (auth/me carries it);
+	// the login screen's attribution byline is static for that reason.
+	req := httptest.NewRequest("GET", "/api/v1/auth/providers", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if strings.Contains(strings.ToLower(w.Body.String()), "version") {
+		t.Errorf("providers must not leak a version pre-authentication: %s", w.Body)
+	}
 }
 
 // --- start ---
