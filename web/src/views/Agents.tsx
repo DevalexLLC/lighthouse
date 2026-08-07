@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiGet } from '../api'
 import HealthStrip, { stripStats, UptimeValue } from '../components/HealthStrip'
 import { fmtAgo, fmtTime } from '../format'
+import { useTimezone } from '../timezone'
 import type { AgentInfo, AgentProbeHealth, AgentProbeHealthResponse, AgentsResponse } from '../types'
 
 const POLL_MS = 30_000
@@ -263,6 +264,7 @@ function Row({
 }
 
 export default function Agents({ onAuthError }: { onAuthError: (err: unknown) => void }) {
+  useTimezone() // re-render fmtTime tooltips on UTC/local toggle
   const [data, setData] = useState<AgentsResponse | null>(null)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState<FleetFilter>('all')

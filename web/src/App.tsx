@@ -3,6 +3,7 @@ import { ApiError, apiGet, apiPost, setCsrfToken } from './api'
 import type { AuthProviders, LoginResponse, User } from './types'
 import LogoMark from './components/LogoMark'
 import ThemeToggle from './components/ThemeToggle'
+import TimezoneToggle from './components/TimezoneToggle'
 import Agents from './views/Agents'
 import Login from './views/Login'
 import Overview from './views/Overview'
@@ -155,6 +156,7 @@ export default function App() {
           ))}
         </nav>
         <div className="topbar-right">
+          <TimezoneToggle />
           <ThemeToggle />
           <details className={'user-menu' + (route.view === 'settings' ? ' user-menu-current' : '')}>
             <summary aria-label={`Open user menu for ${user.username}`}>
