@@ -72,6 +72,26 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- Container healthcheck no longer leaks zombies (2026-08-07): the server
+  image's HEALTHCHECK ran `wget https://127.0.0.1:8080/healthz`, and BusyBox
+  wget forks `/usr/bin/ssl_client` for the TLS handshake then exits without
+  reaping it. The orphan reparents to container PID 1 — which is
+  `lighthouse-server` itself (prod ENTRYPOINT; the dev overlay's `/bin/sh -c`
+  `exec`s it), a Go process that never calls wait(2) — and `HostConfig.Init`
+  is unset, so no tini/docker-init reaper exists. One permanent zombie
+  accumulated on the HOST process table every 30 s (~2/min; observed 1047).
+  Fixed by `lighthouse-server healthcheck` (`cmd/lighthouse-server/healthcheck.go`),
+  a fork-free in-process probe, invoked in HEALTHCHECK **exec form** (shell
+  form would fork `/bin/sh` too). Any future healthcheck must stay fork-free —
+  that is the invariant, not "use a reaper": a fork-free probe holds under
+  `docker run`, podman, and Kubernetes alike, none of which read compose's
+  `init: true`. The subcommand also reads `listen.http` instead of hardcoding
+  `:8080`, so a relocated dashboard port stays checkable; it skips certificate
+  verification exactly as the old `--no-check-certificate` did (loopback
+  liveness, not a trust decision). Runtime timeout is 10 s vs. the probe's own
+  5 s so a hung check reports its own error. Existing zombies clear only when
+  PID 1 exits — recreate the container.
+
 - UTC⇄local display toggle (2026-08-07): `web/src/timezone.ts` mirrors the
   theme store (localStorage `lighthouse-timezone`; anything but a stored
   `local` = UTC, the default — ops convention; no pre-paint script needed),
