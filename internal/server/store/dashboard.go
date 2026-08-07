@@ -117,11 +117,15 @@ type AgentListInfo struct {
 	ConfigHash   string
 	// Newest certificate by issuance; nil only for an agent with no cert
 	// row (never happens through real enrollment).
-	CertNotAfter   *time.Time
-	CertRevokedAt  *time.Time
-	Offline        bool  // an agent_offline outage is currently open
-	ProbesFailing  int64 // open probe_failing outages
-	ProbesTotal    int64 // series ever seen for this agent (series_state rows)
+	CertNotAfter  *time.Time
+	CertRevokedAt *time.Time
+	Offline       bool  // an agent_offline outage is currently open
+	ProbesFailing int64 // open probe_failing outages
+	// Series this agent has reported results for whose probe is still
+	// enabled. Disabling a probe keeps its series_state row (spool-replay
+	// dedup) but removes it from this count immediately; re-enabling
+	// restores it without waiting for a fresh result.
+	ProbesTotal    int64
 	DroppedResults int64
 	LastDroppedAt  *time.Time
 }
@@ -216,10 +220,97 @@ func (s *Store) ListSites(ctx context.Context) ([]SiteInfo, error) {
 	return out, rows.Err()
 }
 
+// enabledProbeIDs is the ID set of every probe series agents are currently
+// expected to run: enabled direct configs by row ID, plus enabled mesh
+// templates expanded over ordered member pairs — the same derivation
+// meshexpand ships to agents, so the set matches their working config
+// exactly.
+func (s *Store) enabledProbeIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, mesh_id, probe_type FROM probe_configs WHERE enabled`)
+	if err != nil {
+		return nil, fmt.Errorf("enabled probes: %w", err)
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	meshTypes := make(map[uuid.UUID][]int16)
+	for rows.Next() {
+		var id uuid.UUID
+		var meshID *uuid.UUID
+		var probeType int16
+		if err := rows.Scan(&id, &meshID, &probeType); err != nil {
+			return nil, fmt.Errorf("enabled probes: %w", err)
+		}
+		if meshID == nil {
+			ids = append(ids, id)
+		} else {
+			meshTypes[*meshID] = append(meshTypes[*meshID], probeType)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("enabled probes: %w", err)
+	}
+	if len(meshTypes) == 0 {
+		return ids, nil
+	}
+	mrows, err := s.pool.Query(ctx, `SELECT mesh_id, site_id FROM mesh_members`)
+	if err != nil {
+		return nil, fmt.Errorf("mesh members: %w", err)
+	}
+	defer mrows.Close()
+	members := make(map[uuid.UUID][]uuid.UUID)
+	for mrows.Next() {
+		var meshID, siteID uuid.UUID
+		if err := mrows.Scan(&meshID, &siteID); err != nil {
+			return nil, fmt.Errorf("mesh members: %w", err)
+		}
+		members[meshID] = append(members[meshID], siteID)
+	}
+	if err := mrows.Err(); err != nil {
+		return nil, fmt.Errorf("mesh members: %w", err)
+	}
+	// Dedupe: nothing constrains a mesh to one template per type, and
+	// duplicate templates derive identical UUIDv5 IDs — ListAgents joins
+	// this set against series rows, where a repeated ID would double-count.
+	seen := make(map[uuid.UUID]bool, len(ids))
+	unique := ids[:0]
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	for meshID, types := range meshTypes {
+		for _, id := range expandMeshProbeIDs(meshID, types, members[meshID]) {
+			if !seen[id] {
+				seen[id] = true
+				unique = append(unique, id)
+			}
+		}
+	}
+	return unique, nil
+}
+
 // ListAgents returns all agents with their site names and health signals.
 // The open-outage fold hits the partial index on closed_at IS NULL;
 // series_state is one small row per series, so the aggregate is cheap.
+// The enabled set is joined via unnest, not `= ANY($1)`: a parameterized
+// array can't be hashed, so ANY would test every element per row —
+// quadratic in mesh size on an endpoint every session polls — while the
+// unnest join hashes to O(rows + set).
+// Both probe counts are intersected with enabledProbeIDs so they track
+// the agent's active probe surface: a disabled probe's retained
+// series_state row must not keep counting toward ProbesTotal, and a
+// probe_failing event re-opened by straggler results ingested during the
+// assignment cache's staleness window (nothing ever closes it — the
+// disabled probe produces no successes) must not keep the agent degraded
+// or make ProbesFailing exceed ProbesTotal. Such stuck events stay
+// visible on the incidents view; only this rollup filters them.
 func (s *Store) ListAgents(ctx context.Context) ([]AgentListInfo, error) {
+	enabled, err := s.enabledProbeIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT a.id, s.name, a.hostname, a.probe_address, a.version, a.last_seen_at,
 		        a.created_at, a.current_config_hash, a.dropped_results, a.last_dropped_at,
@@ -233,15 +324,22 @@ func (s *Store) ListAgents(ctx context.Context) ([]AgentListInfo, error) {
 		         WHERE agent_id = a.id ORDER BY created_at DESC LIMIT 1
 		   ) c ON true
 		   LEFT JOIN (
-		        SELECT agent_id,
-		               bool_or(kind = 'agent_offline') AS offline,
-		               count(*) FILTER (WHERE kind = 'probe_failing') AS failing
-		          FROM outage_events WHERE closed_at IS NULL GROUP BY agent_id
+		        SELECT oe.agent_id,
+		               bool_or(oe.kind = 'agent_offline') AS offline,
+		               count(ep.probe_id) AS failing
+		          FROM outage_events oe
+		          LEFT JOIN unnest($1::uuid[]) AS ep(probe_id)
+		            ON oe.kind = 'probe_failing' AND oe.probe_id = ep.probe_id
+		         WHERE oe.closed_at IS NULL
+		         GROUP BY oe.agent_id
 		   ) o ON o.agent_id = a.id
 		   LEFT JOIN (
-		        SELECT agent_id, count(*) AS total FROM series_state GROUP BY agent_id
+		        SELECT ss.agent_id, count(*) AS total
+		          FROM series_state ss
+		          JOIN unnest($1::uuid[]) AS ep(probe_id) ON ep.probe_id = ss.probe_id
+		         GROUP BY ss.agent_id
 		   ) ss ON ss.agent_id = a.id
-		  ORDER BY s.name, a.hostname`)
+		  ORDER BY s.name, a.hostname`, enabled)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
