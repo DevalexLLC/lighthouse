@@ -399,9 +399,13 @@ button.linklike:hover {
   background: var(--bg);
 }
 
-/* Attribution byline; static, so it never shifts the form as state changes. */
+/* Attribution byline; static, so it never shifts the form as state changes.
+   Separated from the button above so it reads as card footer rather than as
+   part of the submit control. */
 .login-legal {
-  margin: 0.35rem 0 0;
+  margin: 1.1rem 0 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
   text-align: center;
   color: var(--ink-3);
   font-size: 0.78rem;
@@ -412,18 +416,18 @@ button.linklike:hover {
   max-width: 44rem;
 }
 
-.about-ident {
+.about-title {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin-bottom: 0.9rem;
-  font-size: 1.05rem;
-  letter-spacing: -0.01em;
 }
 
+/* Scales with the clamped h1 rather than a fixed px, so the mark keeps its
+   proportion to the title at every viewport width. */
 .about-mark {
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 1em;
+  height: 1em;
+  flex: none;
 }
 
 /* Same shape as .pair-card dl: label left, value right, hairline separated. */

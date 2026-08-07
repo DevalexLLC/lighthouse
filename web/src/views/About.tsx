@@ -16,7 +16,12 @@ export default function About({ version }: { version: string }) {
       <div className="page-head page-head-primary">
         <div>
           <div className="eyebrow">About</div>
-          <h1>Lighthouse</h1>
+          {/* The mark rides the page title so the product is named once, at
+              the top; the cards below carry their own section headings. */}
+          <h1 className="about-title">
+            <LogoMark className="logo-mark about-mark" />
+            Lighthouse
+          </h1>
           <p>
             Inter-site connectivity monitoring — latency, loss, jitter, and path changes, measured in both directions.
           </p>
@@ -24,9 +29,8 @@ export default function About({ version }: { version: string }) {
       </div>
 
       <div className="card about-card">
-        <div className="about-ident">
-          <LogoMark className="logo-mark about-mark" />
-          <strong>Lighthouse</strong>
+        <div className="card-head">
+          <h2>This installation</h2>
         </div>
         <dl className="about-facts">
           <div>
@@ -38,8 +42,11 @@ export default function About({ version }: { version: string }) {
             <dd>Apache-2.0</dd>
           </div>
           <div>
+            {/* The label carries the sense; a © here would read "copyright
+                copyright". The glyph belongs on the login byline, which has
+                no label. */}
             <dt>Copyright</dt>
-            <dd>© 2026 Devalex LLC</dd>
+            <dd>2026 Devalex LLC</dd>
           </div>
         </dl>
       </div>
