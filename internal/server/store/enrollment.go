@@ -51,6 +51,11 @@ func (s *Store) CreateJoinToken(ctx context.Context, siteID uuid.UUID, createdBy
 		INSERT INTO join_tokens (id, secret_hash, site_id, created_by, expires_at)
 		VALUES ($1, $2, $3, $4, now() + $5)`,
 		id, hash[:], siteID, createdBy, ttl)
+	if isFKViolation(err) {
+		// The site was deleted between the caller's resolve/EnsureSite and
+		// this insert — a 404, not a 500.
+		return "", notFoundf("site %s no longer exists", siteID)
+	}
 	if err != nil {
 		return "", fmt.Errorf("create join token: %w", err)
 	}

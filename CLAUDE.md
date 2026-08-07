@@ -72,6 +72,48 @@ Full design + milestone plan: `docs/architecture.md`.
 
 ## Status (as of 2026-08-03)
 
+- Site CRUD + enrollment-token management in the web UI (2026-08-07):
+  Settings gained **Sites** and **Enrollment** tabs
+  (`#/settings/sites|enrollment`). New surface `/api/v1/config/sites`
+  (GET any-session; POST/PUT/DELETE admin) and `/api/v1/config/tokens`
+  (ALL admin, GET included — token audit rows are credential metadata,
+  GET /settings/oidc precedent). Shared validation lives in leaf pkg
+  `internal/server/siteadmin` (probeadmin's FieldNames idiom; CLI
+  `site set` + httpapi both call it). Decided semantics: site delete
+  refuses 409 naming agent/mesh/probe counts and deletes UNUSED join
+  tokens with the site (`{"tokens_deleted":N}`); token delete = revoke,
+  unused-only (used rows are the audit trail + idempotent-replay anchor,
+  409); site name is immutable in PUT (identity, like probe PUT); UI
+  token create resolves via `SiteIDByName` — never EnsureSite — while CLI
+  `token create --site` keeps auto-creating. Site PUT is FULL-STATE:
+  omitting/nulling both coordinates unplaces the site
+  (`SiteUpdate.ClearCoords`; UpdateSite's COALESCE previously made NULL
+  unreachable — CLI gained `site set --clear-coords` too), and its
+  RowsAffected==0 error is now typed `notFoundf` (was untyped → would
+  500). `DeleteSite` statement order is load-bearing: delete unused
+  tokens FIRST, then `FOR UPDATE` the site row, then count+delete —
+  EnrollAgent goes token-lock→site (agents insert takes FOR KEY SHARE via
+  FK), so site-lock-first would deadlock an in-flight enrollment; plain
+  FOR UPDATE (not NO KEY UPDATE) so no agent slips in between count and
+  delete. Post-lock, tokens are COUNTED again (a count takes no row locks
+  — a second DELETE sweep would re-create the deadlock) so a token
+  committed in the sweep→lock window turns the delete into the 409, never
+  an FK 500; the mirror race (writer resolves the site, delete commits,
+  writer's insert hits the FK) is translated via `isFKViolation` (23503)
+  to typed 404s in CreateJoinToken/AddMeshMember/AddDirectProbe.
+  `DeleteJoinToken`'s FOR UPDATE serializes against EnrollAgent
+  on the same row. SPA: `SitesPanel` (TargetsPanel skeleton; delete
+  disabled with counts in the title; clear-both-fields = unplace hint),
+  `EnrollmentPanel` (OIDC-panel conventions: admin-only GET skipped for
+  viewers; one-time cleartext block in its own state so the 30 s poll
+  never clears it, copy button, no enroll-command snippet — it would lack
+  the CA fingerprint and teach TOFU habits); token status
+  (Active/Expired/Used-by-hostname) derived client-side. New store SQL
+  (CreateSite ON CONFLICT, ListSitesConfig counts, DeleteSite tx,
+  ListJoinTokens join, DeleteJoinToken) is NOT exercised by offline fakes
+  — verify against a real migrated DB. No migration: 0001's schema
+  already carries everything.
+
 - Optional OIDC SSO for the dashboard (2026-08-05): authorization-code +
   PKCE via vendored go-oidc/v3 + x/oauth2. Config is the single-row
   `oidc_settings` table (migration 0011 — first post-release migration, so

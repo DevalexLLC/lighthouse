@@ -570,6 +570,14 @@ docker compose exec server lighthouse-server token create \
   --site <site-name> --ttl 24h
 ```
 
+An administrator can also issue tokens from the dashboard under
+**user menu -> Settings -> Enrollment**, after creating the site on the
+**Sites** tab (the dashboard never auto-creates sites — only the CLI command
+above does). The token value is displayed exactly once in either case. The
+Enrollment tab also lists every token with its status and lets an
+administrator delete an unused token, which revokes it immediately; used
+tokens are kept as the enrollment audit record.
+
 Save both values printed by the command:
 
 - the join token, which is valid until its TTL expires and can be used once
@@ -743,7 +751,12 @@ docker compose exec server lighthouse-server site set \
 ```
 
 Coordinates must be supplied together. Repeat for each site so it appears on
-the dashboard map.
+the dashboard map. `site set --clear-coords` removes a site from the map
+again. The same metadata can be edited in the dashboard under
+**user menu -> Settings -> Sites**, which also creates sites explicitly and
+deletes sites nothing references (clearing both coordinate fields unplaces
+the site). Site names are permanent — delete and re-create a site to rename
+it.
 
 ## 11. Configure probe workloads
 

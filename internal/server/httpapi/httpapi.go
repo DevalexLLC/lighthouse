@@ -27,6 +27,14 @@ type DB interface {
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 
 	ListSites(ctx context.Context) ([]store.SiteInfo, error)
+	ListSitesConfig(ctx context.Context) ([]store.SiteAdminInfo, error)
+	CreateSite(ctx context.Context, name string, up store.SiteUpdate) (uuid.UUID, error)
+	UpdateSite(ctx context.Context, name string, up store.SiteUpdate) error
+	DeleteSite(ctx context.Context, name string) (int64, error)
+	SiteIDByName(ctx context.Context, name string) (uuid.UUID, error)
+	ListJoinTokens(ctx context.Context) ([]store.JoinTokenInfo, error)
+	CreateJoinToken(ctx context.Context, siteID uuid.UUID, createdBy string, ttl time.Duration) (string, error)
+	DeleteJoinToken(ctx context.Context, id uuid.UUID) error
 	ListAgents(ctx context.Context) ([]store.AgentListInfo, error)
 	AgentHealthSeries(ctx context.Context, window, bucket time.Duration, excludeProbeType int16) ([]store.AgentHealthBucket, error)
 	AgentProbeHealth(ctx context.Context, agentID uuid.UUID, window, bucket time.Duration) ([]store.AgentProbeHealthRow, error)
@@ -157,6 +165,16 @@ func newHandler(sdb DB, static fs.FS, providers OIDCProviders) http.Handler {
 	mux.Handle("POST /api/v1/config/probes", adminWrite(a.handleProbePost))
 	mux.Handle("PUT /api/v1/config/probes/{id}", adminWrite(a.handleProbePut))
 	mux.Handle("DELETE /api/v1/config/probes/{id}", adminWrite(a.handleProbeDelete))
+	mux.Handle("GET /api/v1/config/sites", a.withSession(a.handleSitesConfigGet))
+	mux.Handle("POST /api/v1/config/sites", adminWrite(a.handleSiteConfigPost))
+	mux.Handle("PUT /api/v1/config/sites/{name}", adminWrite(a.handleSiteConfigPut))
+	mux.Handle("DELETE /api/v1/config/sites/{name}", adminWrite(a.handleSiteConfigDelete))
+	// Enrollment tokens: GET is admin-only too — token audit rows are
+	// credentials metadata, not viewer material (GET /settings/oidc
+	// precedent).
+	mux.Handle("GET /api/v1/config/tokens", adminWrite(a.handleTokensGet))
+	mux.Handle("POST /api/v1/config/tokens", adminWrite(a.handleTokenPost))
+	mux.Handle("DELETE /api/v1/config/tokens/{id}", adminWrite(a.handleTokenDelete))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}", a.withSession(a.handlePair))
 	mux.Handle("GET /api/v1/pairs/{a}/{b}/series", a.withSession(a.handleSeries))
 	mux.Handle("GET /api/v1/outages", a.withSession(a.handleOutages))

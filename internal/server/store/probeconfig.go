@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/devalexllc/lighthouse/internal/server/probeadmin"
 	"github.com/devalexllc/lighthouse/internal/server/probeid"
@@ -54,6 +55,16 @@ func (e conflictError) Is(target error) bool { return target == ErrConflict }
 
 func conflictf(format string, args ...any) error {
 	return conflictError{msg: fmt.Sprintf(format, args...)}
+}
+
+// isFKViolation reports whether err is a PostgreSQL foreign-key violation
+// (SQLSTATE 23503). Admin writers resolve names to ids before inserting, so
+// a parent row deleted in between (possible since sites became deletable)
+// surfaces here — callers translate it to a typed error instead of letting
+// it escape as an opaque 500.
+func isFKViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
 // InUseError reports a target delete blocked by referencing probe configs;
@@ -283,6 +294,11 @@ func (s *Store) AddMeshMember(ctx context.Context, meshName, siteName string) er
 	_, err = tx.Exec(ctx, `
 		INSERT INTO mesh_members (mesh_id, site_id) VALUES ($1, $2)
 		ON CONFLICT DO NOTHING`, meshID, siteID)
+	if isFKViolation(err) {
+		// The site vanished between resolution and insert (the mesh cannot:
+		// lockMesh holds it). Concurrent site delete — a 404, not a 500.
+		return notFoundf("site %q no longer exists", siteName)
+	}
 	if err != nil {
 		return fmt.Errorf("add %q to mesh %q: %w", siteName, meshName, err)
 	}
@@ -451,6 +467,10 @@ func (s *Store) AddDirectProbe(ctx context.Context, siteName, targetName string,
 		RETURNING id`,
 		siteID, targetID, ps.ProbeType, ps.Interval.Milliseconds(), ps.Timeout.Milliseconds(),
 		ps.TrainCount, ps.TrainSpacing.Milliseconds(), ps.Params, updatedBy).Scan(&id)
+	if isFKViolation(err) {
+		// Site or target deleted between resolution and insert — 404.
+		return uuid.Nil, notFoundf("site %q or target %q no longer exists", siteName, targetName)
+	}
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("add probe: %w", err)
 	}
