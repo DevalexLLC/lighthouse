@@ -80,6 +80,8 @@ cp "${ROOT}/deploy/compose/docker-compose.yml" "${OUT}/"
 cp "${ROOT}/deploy/compose/server.example.yaml" "${OUT}/"
 cp "${ROOT}/deploy/compose/env.example" "${OUT}/"
 cp "${ROOT}/docs/install.md" "${OUT}/"
+# Apache-2.0 §4(d): the NOTICE travels with every redistribution.
+cp "${ROOT}/LICENSE" "${ROOT}/NOTICE" "${ROOT}/THIRD-PARTY-NOTICES" "${OUT}/"
 printf '%s\n' "$VERSION" > "${OUT}/VERSION"
 # Machine-readable, digest-qualified pointer for transfer tooling:
 #   docker pull "$(cat TIMESCALEDB-IMAGE)"

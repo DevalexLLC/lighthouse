@@ -20,6 +20,8 @@ Source0:        lighthouse-agent
 Source1:        lighthouse-agent.service
 Source2:        agent.yaml
 Source3:        LICENSE
+Source4:        NOTICE
+Source5:        THIRD-PARTY-NOTICES
 
 BuildRequires:  systemd-rpm-macros
 Requires(pre):  shadow-utils
@@ -40,6 +42,8 @@ install -D -m 0755 %{SOURCE0} %{buildroot}%{_bindir}/lighthouse-agent
 install -D -m 0644 %{SOURCE1} %{buildroot}%{_unitdir}/lighthouse-agent.service
 install -D -m 0640 %{SOURCE2} %{buildroot}%{_sysconfdir}/lighthouse/agent.yaml
 install -D -m 0644 %{SOURCE3} %{buildroot}%{_defaultlicensedir}/%{name}/LICENSE
+install -D -m 0644 %{SOURCE4} %{buildroot}%{_defaultlicensedir}/%{name}/NOTICE
+install -D -m 0644 %{SOURCE5} %{buildroot}%{_defaultlicensedir}/%{name}/THIRD-PARTY-NOTICES
 
 %pre
 getent group lighthouse >/dev/null || groupadd -r lighthouse
@@ -59,6 +63,8 @@ exit 0
 
 %files
 %license %{_defaultlicensedir}/%{name}/LICENSE
+%license %{_defaultlicensedir}/%{name}/NOTICE
+%license %{_defaultlicensedir}/%{name}/THIRD-PARTY-NOTICES
 %{_bindir}/lighthouse-agent
 %{_unitdir}/lighthouse-agent.service
 %dir %attr(0750,root,lighthouse) %{_sysconfdir}/lighthouse
