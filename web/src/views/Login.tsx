@@ -127,6 +127,9 @@ export default function Login({ sso, onLogin }: { sso: boolean; onLogin: (res: L
             </button>
           </>
         )}
+        {/* Static on purpose: this screen is unauthenticated, so it carries
+            no server version. The About page has that, behind a session. */}
+        <p className="login-legal">© 2026 Devalex LLC · Apache-2.0</p>
       </form>
     </div>
   )

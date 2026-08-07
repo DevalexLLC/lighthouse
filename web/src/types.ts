@@ -9,6 +9,9 @@ export interface User {
 export interface LoginResponse {
   user: User
   csrf_token: string
+  // The server's own build, for the About page. Carried on login and on
+  // auth/me, never on the unauthenticated auth/providers.
+  version: string
 }
 
 export interface Site {

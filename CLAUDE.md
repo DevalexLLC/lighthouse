@@ -93,10 +93,20 @@ Full design + milestone plan: `docs/architecture.md`.
 - Copyright + third-party attribution (2026-08-07): the repo previously had
   a stock Apache-2.0 `LICENSE` and nothing else — no copyright holder named
   anywhere, no `NOTICE`, and the RPM shipped LICENSE while the images and
-  the air-gap bundle shipped no legal files at all. Now: LICENSE's appendix
-  names Devalex LLC, a hand-written `NOTICE` carries the §4(d) attribution
-  (deliberately short — it POINTS at the generated file rather than
-  inlining dependency notices, so it can never drift), and
+  the air-gap bundle shipped no legal files at all. Now: a hand-written
+  `NOTICE` carries the §4(d) attribution (deliberately short — it POINTS at
+  the generated file rather than inlining dependency notices, so it can
+  never drift). Do NOT fill in `LICENSE`'s appendix placeholder: it was
+  briefly set to `Copyright 2026 Devalex LLC` and reverted to the canonical
+  `[yyyy] [name of copyright owner]`, because that block is Apache's own
+  instructional boilerplate rather than a project field — editing it
+  modifies canonical license text and can defeat strict SPDX matchers. The
+  ASF convention is verbatim LICENSE + NOTICE, which is what this repo now
+  does. **The holder/year string lives in FIVE places** — change them
+  together: `NOTICE`, `README.md`'s License section, the header emitted by
+  `tools/gen-third-party-notices.sh` (so `THIRD-PARTY-NOTICES` is
+  regenerated, never hand-edited), and the SPA's `views/About.tsx` +
+  `views/Login.tsx`. And
   `THIRD-PARTY-NOTICES` reproduces the license + notice text of everything
   that actually ships. Scope was the whole lesson here: `vendor/` alone is
   NOT what ships. The Go stdlib is statically linked, and `web/embed.go`
@@ -122,11 +132,29 @@ Full design + milestone plan: `docs/architecture.md`.
   stays literally true. Watch the FILE MODE: the generator writes via
   `mktemp`+`mv`, which yields 0600 — it now chmods 0644, because `COPY` into
   the images preserves the source mode and uid 10001 could not read it.
-  Trademark is the open item: Apache-2.0 §6 grants no trademark rights, and
-  the "Lighthouse" name collides with Google's well-known tool — no
-  `TRADEMARK.md` exists yet, and the dashboard still shows no attribution
-  (an About surface needs the server version exposed over HTTP; the SPA's
-  only `version` field today is the AGENT's).
+  Trademark is the one open item: Apache-2.0 §6 grants no trademark rights,
+  and the "Lighthouse" name collides with Google's well-known tool — no
+  `TRADEMARK.md` exists yet.
+
+- In-app attribution (2026-08-07): `#/about`, reached from the user menu and
+  deliberately NOT in `NAV` (top nav stays Overview/Incidents/Routes/Agents)
+  and NOT admin-gated — unlike Settings, every role sees provenance. The
+  server build reaches the SPA via a `version` field on the SHARED
+  `loginResponse` struct, so both `POST /auth/login` and `GET /auth/me`
+  carry it and App.tsx's two entry paths (fresh login, session restore) need
+  no separate plumbing. It is `version.String()`, the same string both CLIs
+  print. Deliberately post-auth only: the login screen's byline is STATIC
+  (`© 2026 Devalex LLC · Apache-2.0`, no version) because the only endpoint
+  it can call unauthenticated is `auth/providers`, and a precise build
+  should not be readable before sign-in — an oidc_test.go assertion pins
+  that. About is also LINK-FREE by design: this product targets air-gapped
+  installs where a github.com link is dead, so the page names on-disk
+  locations (`/licenses` in the images, beside the compose file in the
+  bundle, `/usr/share/licenses/lighthouse-agent` from the RPM) instead.
+  Verified in compose: `lighthouse-server --version` matches the API
+  verbatim (`dev (none)` on the dev stack — the dev overlay passes no
+  VERSION/COMMIT build args; `make images` does), providers stays a bare
+  enabled flag, and a viewer gets the version but 403s on admin settings.
 
 - Container healthcheck no longer leaks zombies (2026-08-07): the server
   image's HEALTHCHECK ran `wget https://127.0.0.1:8080/healthz`, and BusyBox
