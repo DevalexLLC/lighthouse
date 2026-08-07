@@ -31,6 +31,9 @@ RUN adduser -S -D -H -u 10001 -s /sbin/nologin lighthouse \
     && mkdir -p /var/lib/lighthouse-server \
     && chown 10001 /var/lib/lighthouse-server
 COPY --from=build /out/lighthouse-server /usr/local/bin/lighthouse-server
+# Apache-2.0 §4(d): the NOTICE travels with every redistribution, images
+# included. /licenses is the OCI convention.
+COPY LICENSE NOTICE THIRD-PARTY-NOTICES /licenses/
 USER 10001
 # /healthz is unauthenticated by contract (httpapi tests enforce it); the
 # subcommand reads listen.http from the config and skips certificate

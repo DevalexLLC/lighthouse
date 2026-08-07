@@ -32,6 +32,9 @@ LABEL org.opencontainers.image.title="lighthouse-agent" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$COMMIT"
 COPY --from=build /out/lighthouse-agent /usr/local/bin/lighthouse-agent
+# Apache-2.0 §4(d): the NOTICE travels with every redistribution, images
+# included. /licenses is the OCI convention.
+COPY LICENSE NOTICE THIRD-PARTY-NOTICES /licenses/
 # File capability grants raw ICMP (echo fallback + traceroute) to the
 # non-root user; libcap is build-time only.
 RUN apk add --no-cache libcap \

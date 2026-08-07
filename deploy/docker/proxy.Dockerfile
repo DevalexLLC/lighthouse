@@ -16,6 +16,12 @@ LABEL org.opencontainers.image.title="lighthouse-proxy" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$COMMIT"
+# Apache-2.0 §4(d): the NOTICE travels with every redistribution, images
+# included. /licenses is the OCI convention.
+# THIRD-PARTY-NOTICES covers the Go modules linked into server/agent, none of
+# which ship here — carried anyway so NOTICE's "every release artifact" claim
+# holds and all three images are identical in this respect.
+COPY LICENSE NOTICE THIRD-PARTY-NOTICES /licenses/
 COPY deploy/proxy/nginx.conf.template /etc/nginx/templates/nginx.conf.template
 ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx \
     LIGHTHOUSE_GRPC_SNI=grpc.lighthouse.local

@@ -1,0 +1,14 @@
+Lighthouse
+Copyright 2026 Devalex LLC
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+This product includes third-party software. The lighthouse-server and
+lighthouse-agent binaries are statically linked and embed the Go standard
+library and the Go modules vendored under vendor/; lighthouse-server
+additionally embeds the built dashboard, which bundles third-party
+JavaScript packages and the JetBrains Mono webfont. All of their licenses
+and attribution notices are reproduced in full in the accompanying
+THIRD-PARTY-NOTICES file, which is distributed alongside this NOTICE in
+every release artifact.

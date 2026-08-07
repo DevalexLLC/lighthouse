@@ -24,7 +24,7 @@ RPM_ARCHS  ?= x86_64 aarch64
 # Published image registry/namespace (ghcr requires lowercase).
 REGISTRY ?= ghcr.io/devalexllc
 
-.PHONY: all build server agent test lint vet proto web web-fix vendor up down reset logs ps seed clean rpm images bundle
+.PHONY: all build server agent test lint vet proto web web-fix vendor notices up down reset logs ps seed clean rpm images bundle
 
 all: build
 
@@ -61,7 +61,7 @@ rpm-build:
 	rm -rf dist/rpm/SOURCES-$(RPM_TARGET)
 	mkdir -p dist/rpm/SOURCES-$(RPM_TARGET)
 	cp $(RPM_BINARY) dist/rpm/SOURCES-$(RPM_TARGET)/lighthouse-agent
-	cp packaging/systemd/lighthouse-agent.service packaging/rpm/agent.yaml LICENSE dist/rpm/SOURCES-$(RPM_TARGET)/
+	cp packaging/systemd/lighthouse-agent.service packaging/rpm/agent.yaml LICENSE NOTICE THIRD-PARTY-NOTICES dist/rpm/SOURCES-$(RPM_TARGET)/
 	rpmbuild -bb packaging/rpm/lighthouse-agent.spec \
 		--target $(RPM_TARGET) \
 		--define "lh_version $(RPM_VERSION)" \
@@ -110,8 +110,14 @@ proto:
 # Lint and format-check before building: the SPA gate is the only place the
 # committed web/dist can be regenerated, so it is also where style problems
 # must surface. `make web-fix` auto-fixes what it can.
+# The license step needs node_modules, so it runs here rather than in
+# `notices` (which must stay offline). Chained into `notices` because
+# web/THIRD-PARTY-LICENSES is one of its inputs — regenerating the bundle
+# without regenerating attribution is exactly the drift CI now rejects.
 web:
-	cd web && pnpm install --frozen-lockfile && pnpm run lint && pnpm run fmt:check && pnpm run build
+	cd web && pnpm install --frozen-lockfile && pnpm run lint && pnpm run fmt:check && pnpm run build \
+		&& node tools/gen-spa-licenses.mjs
+	$(MAKE) notices
 
 web-fix:
 	cd web && pnpm run lint:fix && pnpm run fmt
@@ -119,6 +125,15 @@ web-fix:
 vendor:
 	$(GO) mod tidy
 	$(GO) mod vendor
+	$(MAKE) notices
+
+# Third-party attribution, regenerated from vendor/. Offline and
+# deterministic, unlike the other targets in this section, so CI runs it and
+# lets the "working tree must stay clean" step catch drift — a new dependency
+# whose attribution was never added fails the PR instead of shipping
+# unattributed. Chained off `vendor` so the two can never disagree.
+notices:
+	./tools/gen-third-party-notices.sh
 
 # ---- dev stack ----
 

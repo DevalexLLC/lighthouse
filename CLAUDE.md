@@ -46,6 +46,24 @@ Full design + milestone plan: `docs/architecture.md`.
   services).
 - Regenerate protos: `make proto` (buf + protoc-gen-go{,-grpc} in ~/go/bin),
   commit the diff under `internal/pb/`.
+- Licensing/attribution: `LICENSE` (Apache-2.0) + hand-written `NOTICE` +
+  generated `THIRD-PARTY-NOTICES`. All THREE ship in every artifact — RPM
+  (`%license`), all three images (`/licenses`), and the air-gap bundle. Any
+  new distribution channel must carry them too. `make notices`
+  (`tools/gen-third-party-notices.sh`) regenerates the third-party file and
+  is chained off BOTH `make vendor` and `make web`, because it folds four
+  input groups: the Go stdlib (`$(go env GOROOT)/LICENSE`+`PATENTS` — it is
+  linked in, and BSD-3 §2 covers binary redistribution), `vendor/`, the
+  COMMITTED `web/THIRD-PARTY-LICENSES`, and `web/public/fonts/OFL.txt`. The
+  SPA half is a separate generator (`web/tools/gen-spa-licenses.mjs`, run by
+  `make web`) precisely because `node_modules` is gitignored and absent from
+  the offline build — the top-level script must never need it. Both ABORT on
+  a shipped component with no license file. TWO CI gates, because one cannot
+  cover both halves: `offline-build` runs `make notices` before its existing
+  clean-tree check, and `web-lint` (the only job with `node_modules`)
+  regenerates `web/THIRD-PARTY-LICENSES` and diffs it — without the second,
+  a react bump without `make web` would fold stale attribution and still
+  pass. Neither adds a named check, so the ruleset is untouched.
 - SPA style: `make web` runs `pnpm run lint && pnpm run fmt:check` BEFORE
   building, so a finding or an unformatted file blocks the dist rebuild;
   `make web-fix` = `oxlint --fix` + `oxfmt`. `make lint` is untouched
@@ -71,6 +89,44 @@ Full design + milestone plan: `docs/architecture.md`.
   `git branch -f main origin/main` to rewind main.
 
 ## Status (as of 2026-08-03)
+
+- Copyright + third-party attribution (2026-08-07): the repo previously had
+  a stock Apache-2.0 `LICENSE` and nothing else — no copyright holder named
+  anywhere, no `NOTICE`, and the RPM shipped LICENSE while the images and
+  the air-gap bundle shipped no legal files at all. Now: LICENSE's appendix
+  names Devalex LLC, a hand-written `NOTICE` carries the §4(d) attribution
+  (deliberately short — it POINTS at the generated file rather than
+  inlining dependency notices, so it can never drift), and
+  `THIRD-PARTY-NOTICES` reproduces the license + notice text of everything
+  that actually ships. Scope was the whole lesson here: `vendor/` alone is
+  NOT what ships. The Go stdlib is statically linked, and `web/embed.go`
+  bakes `web/dist` into lighthouse-server — so React/react-dom/scheduler/
+  uPlot (MIT) and JetBrains Mono (OFL) are redistributed inside the server
+  binary and are attributed too. Only 19 of the 21 modules in
+  `vendor/modules.txt` are listed: `kr/text` and `rogpeppe/go-internal` have
+  no vendored directory (test-only deps of deps), so nothing of them is
+  linked and nothing is owed — the generator skips absent directories on
+  purpose. Devtooling is excluded EXCEPT the two packages that inject
+  runtime helpers into every production bundle: **vite** (modulepreload
+  polyfill) and **rolldown** (`__commonJSMin`, Vite 8's bundler and only a
+  TRANSITIVE dep — `pnpm list --prod` cannot see either). Their verbatim
+  MIT code sits at the head of `web/dist/assets/index-*.js` and therefore
+  inside the server binary. `EMITTED_BY_BUILD` in the SPA generator is
+  consequently a CURATED list, and a bundler swap/upgrade is exactly what
+  adds to it — check the head of the built bundle when the pipeline moves.
+  Attributing the whole toolchain closure instead was rejected: it would
+  claim postcss/picomatch ship, which is false in a legal document.
+  typescript/oxlint/oxfmt emit nothing and stay out. The proxy image
+  carries THIRD-PARTY-NOTICES too even though none
+  of that ships in it, purely so NOTICE's "every release artifact" claim
+  stays literally true. Watch the FILE MODE: the generator writes via
+  `mktemp`+`mv`, which yields 0600 — it now chmods 0644, because `COPY` into
+  the images preserves the source mode and uid 10001 could not read it.
+  Trademark is the open item: Apache-2.0 §6 grants no trademark rights, and
+  the "Lighthouse" name collides with Google's well-known tool — no
+  `TRADEMARK.md` exists yet, and the dashboard still shows no attribution
+  (an About surface needs the server version exposed over HTTP; the SPA's
+  only `version` field today is the AGENT's).
 
 - Container healthcheck no longer leaks zombies (2026-08-07): the server
   image's HEALTHCHECK ran `wget https://127.0.0.1:8080/healthz`, and BusyBox
