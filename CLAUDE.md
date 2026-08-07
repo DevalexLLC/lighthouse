@@ -312,7 +312,9 @@ Full design + milestone plan: `docs/architecture.md`.
   responsive layouts, and AA-safe semantic text colors. Incidents correlate
   rows by active/resolved state, kind, probe, and normalized error, with
   active/all/resolved filters, search, impact counts, and expandable target
-  detail. Routes and Agents gained task-specific search and health filters;
+  detail. Routes and Agents gained task-specific search and health filters
+  (Routes search also accepts `src -> dst` direction patterns, either side
+  optional, `→` accepted);
   thresholds moved from the map into Settings; Pair Detail and Login now use
   the shared hierarchy. All API contracts and polling behavior are unchanged.
 
@@ -397,7 +399,11 @@ Full design + milestone plan: `docs/architecture.md`.
   http target down for maintenance vs a real link problem. New
   `GET /api/v1/agents/{id}/health` (24h-only like the fleet endpoint;
   unknown agent = 200 `probes:[]`, bad uuid = 400): inventory from
-  `series_state` (silent series appear with `buckets:[]`), buckets grouped
+  `series_state` INTERSECTED with `enabledProbeIDs` (same set as the
+  ListAgents rollup, so the expanded list always agrees with the row's
+  "N of M failing" — disabled probes' retained series rows and their
+  stuck probe_failing events stay out; silent enabled series appear with
+  `buckets:[]`), buckets grouped
   from raw probe_results by probe_id (caggs don't key on probe_id; 24h <
   14d raw retention), labels via the ListOutages target→agent→site join —
   agent-kind targets carry `dst_site` with `target` null (the synthesized
@@ -424,7 +430,21 @@ Full design + milestone plan: `docs/architecture.md`.
 - Agents fleet-health view (`#/agents`): `/api/v1/agents` now carries
   enrolled_at, config_hash, newest-cert not_after/revoked_at, open
   outage rollups (offline flag + probes_failing count), series totals,
-  and spool-drop accounting. `dropped_since_last_push` is persisted
+  and spool-drop accounting. `probes_total` AND `probes_failing`
+  (2026-08-06) count only the currently-ENABLED probe surface:
+  `ListAgents` intersects both `series_state` and open `probe_failing`
+  events with `enabledProbeIDs` (direct config rows + mesh UUIDv5
+  expansion, the same derivation agents receive). Disable deliberately
+  keeps the series row for spool-replay dedup and would otherwise
+  inflate the total forever, and a `probe_failing` event re-opened by
+  stragglers inside the assignment cache's 30 s staleness window can
+  never close (no successes come from a disabled probe) — unfiltered it
+  would pin the agent degraded with "N of 0 failing"; the stuck event
+  stays visible on Incidents, only the Agents rollup filters it.
+  Re-enable restores both instantly; a brand-new probe still appears
+  only at first ingested result. Verified live in compose (disable →
+  11→10 → re-enable → 11; the enabled-set SQL isn't covered by offline
+  fakes). `dropped_since_last_push` is persisted
   (`agents.dropped_results` running total + `last_dropped_at`) — the
   wire value is a delta (agent clears only after an acked push), so the
   server accumulates; a failed drop-write fails the RPC (Unavailable) so
