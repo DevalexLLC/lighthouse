@@ -70,7 +70,8 @@ type Spool struct {
 }
 
 // Open initializes the spool directory, scans existing segments (truncating
-// any corrupt tail), and loads the persisted dropped counter.
+// any corrupt tail), loads the persisted dropped counter, and enforces the
+// size/age bounds on recovered data before signaling pending work.
 func Open(dir string, maxBytes int64, maxAge time.Duration) (*Spool, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("spool: %w", err)
@@ -102,22 +103,38 @@ func Open(dir string, maxBytes int64, maxAge time.Duration) (*Spool, error) {
 			s.dropped = v
 		}
 	}
+	// Recovered data must respect the same bounds as live appends: an agent
+	// restarted after a long outage would otherwise replay segments older
+	// than max_age (or beyond max_bytes) until the first Append prunes them.
+	// Runs after the counter load so startup drops persist on top of the
+	// prior total, and before the wake so pruning-to-empty signals nothing.
+	s.mu.Lock()
+	err = s.enforceBoundsLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	if s.pending > 0 {
 		s.wake()
 	}
 	return s, nil
 }
 
-// Append spools one result. Errors are I/O problems the caller should treat
-// as fatal for the agent (a spool that cannot be written violates the
-// spool-first contract).
+// Append spools one result. A non-nil error is an I/O failure of the spool
+// itself and is fatal for the agent: a spool that cannot be written violates
+// the spool-first contract. Per-record faults — a result that cannot be
+// marshalled or exceeds the record limit — are logged and counted as dropped
+// (reported via dropped_since_last_push) instead of being returned: retrying
+// such a record can never succeed, so it takes the same counted-loss path as
+// bounds overflow instead of killing the agent. Only a failure to persist
+// that drop counter — spool I/O again — surfaces as an error.
 func (s *Spool) Append(res *pb.ProbeResult) error {
 	payload, err := proto.Marshal(res)
 	if err != nil {
-		return fmt.Errorf("spool: marshal: %w", err)
+		return s.dropUnspoolable(res, fmt.Errorf("marshal: %w", err))
 	}
 	if len(payload) > maxRecordBytes-recordOverhead {
-		return fmt.Errorf("spool: result of %d bytes exceeds record limit", len(payload))
+		return s.dropUnspoolable(res, fmt.Errorf("result of %d bytes exceeds record limit", len(payload)))
 	}
 
 	s.mu.Lock()
@@ -157,6 +174,19 @@ func (s *Spool) Append(res *pb.ProbeResult) error {
 	}
 	s.wake()
 	return nil
+}
+
+// dropUnspoolable counts a per-record fault as a drop. A non-nil return is a
+// sidecar persistence failure — spool I/O, fatal like any other Append error.
+func (s *Spool) dropUnspoolable(res *pb.ProbeResult, reason error) error {
+	s.mu.Lock()
+	s.dropped++
+	err := s.persistDroppedLocked()
+	dropped := s.dropped
+	s.mu.Unlock()
+	slog.Error("spool: dropping unspoolable result",
+		"probe", res.GetProbeId(), "reason", reason, "dropped_total", dropped)
+	return err
 }
 
 // Next reads up to max spooled results oldest-first without consuming them.
@@ -266,7 +296,11 @@ func (s *Spool) ClearDropped(reported uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.dropped -= min(s.dropped, reported)
-	s.persistDroppedLocked()
+	// Log-only: a persist failure here means a restart over-reports already
+	// cleared drops, never that loss goes uncounted.
+	if err := s.persistDroppedLocked(); err != nil {
+		slog.Error("spool: persisting dropped counter failed", "err", err)
+	}
 }
 
 // C signals whenever new results are spooled (coalesced).
@@ -387,7 +421,9 @@ func (s *Spool) enforceBoundsLocked() error {
 		}
 		s.pending = max0(s.pending - records)
 		s.dropped += uint64(records)
-		s.persistDroppedLocked()
+		if err := s.persistDroppedLocked(); err != nil {
+			return err
+		}
 		reason := "max_bytes"
 		if overAge {
 			reason = "max_age"
@@ -526,16 +562,16 @@ func (s *Spool) countRecords(path string) (int, error) {
 	}
 }
 
-func (s *Spool) persistDroppedLocked() {
+func (s *Spool) persistDroppedLocked() error {
 	path := filepath.Join(s.dir, droppedFile)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(strconv.FormatUint(s.dropped, 10)), 0o600); err != nil {
-		slog.Error("spool: persisting dropped counter failed", "err", err)
-		return
+		return fmt.Errorf("spool: persist dropped counter: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		slog.Error("spool: persisting dropped counter failed", "err", err)
+		return fmt.Errorf("spool: persist dropped counter: %w", err)
 	}
+	return nil
 }
 
 func (s *Spool) syncDirLocked() error {

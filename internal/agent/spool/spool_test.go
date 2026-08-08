@@ -250,14 +250,132 @@ func TestMaxAgeDropsOldSegments(t *testing.T) {
 	old := time.Now().Add(-2 * time.Hour)
 	os.Chtimes(segs[0].path, old, old)
 
-	s2 := mustOpen(t, dir, 1<<30, time.Hour)
-	appendN(t, s2, 2, 1) // bounds are enforced on append
+	s2 := mustOpen(t, dir, 1<<30, time.Hour) // bounds are enforced at Open
+	appendN(t, s2, 2, 1)
 	if s2.Dropped() != 2 {
 		t.Errorf("dropped = %d, want 2 (aged-out segment)", s2.Dropped())
 	}
 	got, _ := s2.Next(100)
 	if len(got) != 1 || got[0].ProbeId != "probe-000002" {
 		t.Errorf("surviving records wrong: %d", len(got))
+	}
+}
+
+func TestAppendOversizedRecordDroppedNotFatal(t *testing.T) {
+	dir := t.TempDir()
+	s := mustOpen(t, dir, 1<<30, time.Hour)
+	big := result(0)
+	big.Error = string(make([]byte, maxRecordBytes))
+	if err := s.Append(big); err != nil {
+		t.Fatalf("oversized record must be dropped, not returned as an error: %v", err)
+	}
+	if s.Dropped() != 1 {
+		t.Errorf("dropped = %d, want 1", s.Dropped())
+	}
+	if s.Pending() != 0 {
+		t.Errorf("pending = %d, want 0", s.Pending())
+	}
+	// The spool keeps working, and the drop survives a restart.
+	appendN(t, s, 1, 1)
+	s.Close()
+	s2 := mustOpen(t, dir, 1<<30, time.Hour)
+	if s2.Dropped() != 1 {
+		t.Errorf("dropped counter lost across reopen: %d", s2.Dropped())
+	}
+	if got, _ := s2.Next(100); len(got) != 1 || got[0].ProbeId != "probe-000001" {
+		t.Errorf("surviving record wrong: %d", len(got))
+	}
+}
+
+func TestAppendIOErrorIsReturned(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory modes do not bind root")
+	}
+	dir := t.TempDir()
+	s := mustOpen(t, dir, 1<<30, time.Hour)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if err := s.Append(result(0)); err == nil {
+		t.Fatal("append into an unwritable spool dir must return an error (fatal for the agent)")
+	}
+	// The per-record drop path must not mask spool I/O either: an oversized
+	// record whose drop counter cannot be persisted is a fatal error too.
+	big := result(1)
+	big.Error = string(make([]byte, maxRecordBytes))
+	if err := s.Append(big); err == nil {
+		t.Fatal("unpersistable drop counter must return an error (fatal for the agent)")
+	}
+}
+
+func TestOpenPrunesExpiredSegments(t *testing.T) {
+	dir := t.TempDir()
+	s := mustOpen(t, dir, 1<<30, time.Hour)
+	appendN(t, s, 0, 3)
+	s.Close()
+	segs, _ := s.listSegments()
+	old := time.Now().Add(-2 * time.Hour)
+	for _, seg := range segs {
+		os.Chtimes(seg.path, old, old)
+	}
+	// Startup drops must add to a prior persisted total, not overwrite it.
+	os.WriteFile(filepath.Join(dir, droppedFile), []byte("5"), 0o600)
+
+	s2 := mustOpen(t, dir, 1<<30, time.Hour)
+	if s2.Pending() != 0 {
+		t.Errorf("pending = %d, want 0 (expired segments pruned at Open)", s2.Pending())
+	}
+	if s2.Dropped() != 8 {
+		t.Errorf("dropped = %d, want 8 (5 prior + 3 pruned)", s2.Dropped())
+	}
+	if segs, _ := s2.listSegments(); len(segs) != 0 {
+		t.Errorf("%d segments survive Open, want 0", len(segs))
+	}
+	select {
+	case <-s2.C():
+		t.Error("wake emitted although pruning removed every pending result")
+	default:
+	}
+}
+
+func TestOpenPrunesOversizedRecovery(t *testing.T) {
+	dir := t.TempDir()
+	// One ~2 KiB segment per open/append/close cycle (reopen starts a fresh
+	// sequence number, so appends never land in a sealed segment).
+	for cycle := range 4 {
+		s, err := Open(dir, 1<<30, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := result(cycle)
+		r.Error = string(make([]byte, 2048))
+		if err := s.Append(r); err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+	}
+
+	s2 := mustOpen(t, dir, 5000, time.Hour)
+	segs, _ := s2.listSegments()
+	var total int64
+	for _, seg := range segs {
+		total += seg.size
+	}
+	if total > 5000 {
+		t.Errorf("recovered spool is %d bytes, exceeds max_bytes 5000", total)
+	}
+	if s2.Dropped() != 2 {
+		t.Errorf("dropped = %d, want 2 (oldest segments pruned at Open)", s2.Dropped())
+	}
+	got, _ := s2.Next(100)
+	if len(got) != 2 || got[0].ProbeId != "probe-000002" {
+		t.Errorf("surviving records wrong: len=%d", len(got))
+	}
+	select {
+	case <-s2.C():
+	default:
+		t.Error("surviving recovered results must signal the pusher")
 	}
 }
 
