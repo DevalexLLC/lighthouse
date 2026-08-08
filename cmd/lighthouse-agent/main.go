@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -131,10 +132,12 @@ func cmdRun(args []string) error {
 
 	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	// Cancellable in its own right: a fatal uplink error must also stop the
-	// background goroutines, or the shutdown barrier below would wait forever.
-	ctx, cancel := context.WithCancel(sigCtx)
-	defer cancel()
+	// Cancellable in its own right: a fatal error (a spool write failure in
+	// the scheduler sink) must also stop the background goroutines, or the
+	// shutdown barrier below would wait forever. The cause distinguishes a
+	// fatal from a clean signal-driven shutdown.
+	ctx, cancel := context.WithCancelCause(sigCtx)
+	defer cancel(nil)
 	var wg sync.WaitGroup
 
 	up, err := uplink.New(cfg)
@@ -154,11 +157,7 @@ func cmdRun(args []string) error {
 	}
 	defer sp.Close()
 
-	sched := scheduler.New(probes.DefaultRegistry(), func(res *pb.ProbeResult) {
-		if err := sp.Append(res); err != nil {
-			slog.Error("spool append failed", "probe", res.GetProbeId(), "err", err)
-		}
-	})
+	sched := scheduler.New(probes.DefaultRegistry(), spoolSink(sp.Append, cancel))
 	defer sched.Stop()
 	up.OnSnapshot = sched.Apply
 
@@ -166,7 +165,7 @@ func cmdRun(args []string) error {
 	// the pusher and the renewer are joined before sched.Stop, sp.Close and
 	// up.Close tear down the spool and the gRPC connection underneath them.
 	defer func() {
-		cancel()
+		cancel(nil)
 		wg.Wait()
 	}()
 
@@ -181,7 +180,26 @@ func cmdRun(args []string) error {
 		defer wg.Done()
 		renewer.Run(ctx)
 	}()
-	return up.Run(ctx)
+	runErr := up.Run(ctx)
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+		return cause
+	}
+	return runErr
+}
+
+// spoolSink returns the scheduler sink: append every result to the spool, and
+// on append failure cancel the run with the error as cause so the agent exits
+// non-zero. The spool-first contract makes an unwritable spool fatal — running
+// on would silently lose every result while the config stream keeps the agent
+// looking online. Concurrency-safe as the scheduler requires; the first
+// failure's cause wins.
+func spoolSink(append func(*pb.ProbeResult) error, cancel context.CancelCauseFunc) func(*pb.ProbeResult) {
+	return func(res *pb.ProbeResult) {
+		if err := append(res); err != nil {
+			slog.Error("spool append failed; terminating agent", "probe", res.GetProbeId(), "err", err)
+			cancel(fmt.Errorf("spool append failed (probe %s): %w", res.GetProbeId(), err))
+		}
+	}
 }
 
 func setupLogging(level string) {

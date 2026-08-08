@@ -88,7 +88,45 @@ Full design + milestone plan: `docs/architecture.md`.
   locally? `git switch -c <branch>` (the commits follow), then
   `git branch -f main origin/main` to rewind main.
 
-## Status (as of 2026-08-03)
+## Status (as of 2026-08-08)
+
+- Spool write failures are fatal + startup bounds enforcement (2026-08-08):
+  the scheduler sink previously only LOGGED `sp.Append` errors, and
+  `uplink.Run` never returns non-nil — so post-startup the agent had no
+  path to a non-zero exit at all: a full disk dropped every result while
+  the config stream kept the agent "online". `cmdRun` now uses
+  `context.WithCancelCause`: the sink (`spoolSink` in
+  cmd/lighthouse-agent/main.go, unit-testable seam) cancels with the
+  append error as cause, and after `up.Run` unwinds the cause is returned
+  unless it is `context.Canceled` (signal shutdown stays exit 0). Exit 1 →
+  systemd `Restart=on-failure` (unit deliberately untouched; RestartSec=5
+  cannot trip the default start limit) → `ExecStartPre` selfcheck fails
+  loudly naming the unwritable spool until the disk clears. To keep that
+  contract crisp, `Append` reclassified its two per-record faults
+  (proto.Marshal failure, >1 MiB record): they are logged + counted into
+  the persisted `dropped` counter (surface as `dropped_since_last_push`)
+  and return nil — fatal would crash-loop the agent forever on one
+  pathological result — so a non-nil Append error now genuinely means
+  spool I/O. Second fix in the same change (codex finding): `spool.Open`
+  now runs `enforceBoundsLocked` on recovered data — after the dropped-
+  counter load (startup drops persist on TOP of the prior total), before
+  the wake (pruning-to-empty signals nothing) — so a restart after long
+  downtime can no longer replay segments older than `max_age`/beyond
+  `max_bytes` (M5's hourly-refresh `start_offset` 8 d > `max_age` 7 d
+  calibration assumes that). Tests: spool per-record drop / Append I/O
+  error (chmod, skipped as root) / Open-prunes-expired / Open-prunes-
+  oversized (multi-segment via reopen cycles) / wake semantics, plus
+  first-ever cmd/lighthouse-agent tests pinning sink cancel-with-cause and
+  first-error-wins. Codex follow-up: `persistDroppedLocked` now RETURNS
+  its error — dropUnspoolable and enforceBoundsLocked propagate it (a
+  sidecar that can't be written is spool I/O → fatal; otherwise an
+  oversized record on a dead disk returned nil), ClearDropped stays
+  log-only (persist failure there over-reports cleared drops on restart,
+  never uncounts loss). Known marginal gap, deliberately NOT fixed:
+  drops with zero pending results (all-unspoolable workload, or startup
+  pruning emptying the spool on a probe-less agent) report only with the
+  next pushed batch — `dropped_since_last_push` rides pushes by design;
+  a drop-only push would be a wire behavior change.
 
 - Copyright + third-party attribution (2026-08-07): the repo previously had
   a stock Apache-2.0 `LICENSE` and nothing else — no copyright holder named
