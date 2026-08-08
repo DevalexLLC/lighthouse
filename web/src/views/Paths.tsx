@@ -84,8 +84,8 @@ function EventRow({ e }: { e: PathEvent }) {
         <span className="hint" title={fmtTime(e.time)}>
           {fmtAgo(e.time)}
         </span>
-        <span className="path-toggle">
-          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span> {expanded ? 'hide diff' : 'show diff'}
+        <span className="incident-toggle path-toggle">
+          {expanded ? 'Hide details' : 'View details'} <span aria-hidden="true">{expanded ? '−' : '+'}</span>
         </span>
       </button>
       {expanded && (

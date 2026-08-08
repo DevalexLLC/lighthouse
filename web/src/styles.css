@@ -1293,7 +1293,7 @@ tr.outage-closed .outage-error {
   display: grid;
   align-items: center;
   gap: 0.7rem;
-  grid-template-columns: minmax(8rem, max-content) max-content max-content max-content;
+  grid-template-columns: minmax(8rem, max-content) max-content max-content 1fr;
   justify-content: start;
   width: 100%;
   background: none;
@@ -1315,10 +1315,10 @@ tr.outage-closed .outage-error {
   font-size: 0.82rem;
 }
 
+/* Text treatment comes from the shared .incident-toggle; this only parks
+   the toggle at the far right of the row, like Incidents/Agents. */
 .path-toggle {
-  color: var(--accent);
-  font-size: 0.85rem;
-  white-space: nowrap;
+  justify-self: end;
 }
 
 table.hop-diff {
@@ -1518,7 +1518,6 @@ ol.hops li {
     grid-column: 2;
     grid-row: 1 / span 2;
     align-self: center;
-    margin-left: 0;
   }
 
   .path-hashes {
